@@ -22,8 +22,8 @@ class AgentEngine(private val context: Context) {
     /** 每轮对话开始时重新读 /sdcard/PocketHarness/MEMORY.md，跨会话记忆即时生效 */
     private fun systemPrompt(): String = SYSTEM_PROMPT + "\n\n# 当前长期记忆（/sdcard/${Workspace.DIR_NAME}/MEMORY.md 实时内容）\n\n" + Workspace.readMemory()
 
-    /** 工具循环上限，防止死循环烧 token */
-    var maxToolRounds = 8
+    /** 工具循环上限，防止死循环烧 token（可在设置页调） */
+    var maxToolRounds = 25
     /** 每轮回调（UI 线程刷新用） */
     var onEvent: ((String) -> Unit)? = null
 
@@ -110,7 +110,15 @@ class AgentEngine(private val context: Context) {
             if (!resp.content.isNullOrBlank()) return resp.content
             return "(模型返回空回复)"
         }
-        return "⚠️ 已达工具轮次上限（$maxToolRounds），强制结束。"
+        // 达到轮次上限：不给工具，强制让模型带着已有信息总结收尾
+        onEvent?.invoke("⚠️ 已达工具轮次上限（$maxToolRounds），正在总结收尾…")
+        history.add(LlmClient.Message("user",
+            "（系统）已达工具轮次上限（$maxToolRounds）。不要再调用任何工具，直接根据以上已获取的信息总结：任务进展、已完成步骤、结果、剩余建议。"))
+        return try {
+            client.chat(history, null).content ?: "（模型未能总结；任务未完成，请拆小步重试）"
+        } catch (e: Exception) {
+            "⚠️ 已达工具轮次上限（$maxToolRounds）且总结失败：${e.message}"
+        }
     }
 
     companion object {

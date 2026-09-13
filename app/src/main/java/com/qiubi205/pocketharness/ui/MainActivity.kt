@@ -40,6 +40,7 @@ class MainActivity : AppCompatActivity() {
         prefs = Prefs(this)
         engine = AgentEngine(this)
         engine.configure(prefs.baseUrl, prefs.apiKey, prefs.model)
+        engine.maxToolRounds = prefs.maxToolRounds
         engine.onEvent = { ev -> runOnUiThread { appendLog(ev) } }
 
         // 会话：恢复上次激活的会话（无则建新），历史回填引擎
@@ -123,19 +124,26 @@ class MainActivity : AppCompatActivity() {
             val url = EditText(this@MainActivity).apply { hint = "Base URL (如 https://api.xx.com/v1)"; setText(prefs.baseUrl) }
             val key = EditText(this@MainActivity).apply { hint = "API Key"; setText(prefs.apiKey) }
             val model = EditText(this@MainActivity).apply { hint = "模型名"; setText(prefs.model) }
+            val rounds = EditText(this@MainActivity).apply {
+                hint = "工具循环上限（默认 25）"
+                setText(prefs.maxToolRounds.toString())
+                inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            }
             val save = Button(this@MainActivity).apply {
                 text = "保存配置"
                 setOnClickListener {
                     prefs.baseUrl = url.text.toString().trim()
                     prefs.apiKey = key.text.toString().trim()
                     prefs.model = model.text.toString().trim()
+                    prefs.maxToolRounds = rounds.text.toString().toIntOrNull()?.coerceIn(3, 100) ?: 25
+                    engine.maxToolRounds = prefs.maxToolRounds
                     engine.configure(prefs.baseUrl, prefs.apiKey, prefs.model)
-                    appendLog("✅ 配置已保存：${prefs.baseUrl} / ${prefs.model}")
+                    appendLog("✅ 配置已保存：${prefs.baseUrl} / ${prefs.model} / 循环上限 ${prefs.maxToolRounds}")
                     settingsPanel.visibility = View.GONE
                     refreshStatus()
                 }
             }
-            addView(url); addView(key); addView(model); addView(save)
+            addView(url); addView(key); addView(model); addView(rounds); addView(save)
         }
 
         val settingsBtn = TextView(this).apply {

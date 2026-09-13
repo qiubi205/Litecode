@@ -20,6 +20,10 @@ class Prefs(ctx: Context) {
         get() = sp.getString("model", "gpt-4o-mini")!!
         set(v) = sp.edit().putString("model", v).apply()
 
+    var maxToolRounds: Int
+        get() = sp.getInt("max_tool_rounds", 25)
+        set(v) = sp.edit().putInt("max_tool_rounds", v).apply()
+
     fun summary(): JSONObject = JSONObject()
         .put("base_url", baseUrl)
         .put("model", model)
