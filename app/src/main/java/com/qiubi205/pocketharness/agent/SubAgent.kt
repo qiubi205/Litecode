@@ -35,7 +35,9 @@ object SubAgent {
         val tools = JSONArray()
         for (i in 0 until FileTools.definitions.length()) tools.put(FileTools.definitions.get(i))
 
-        repeat(maxRounds) {
+        var rounds = 0
+        while (rounds < maxRounds) {
+            rounds++
             val resp = client.chat(messages, tools)
             if (resp.toolCalls.isNotEmpty()) {
                 messages.add(LlmClient.Message("assistant", resp.content, toolCalls = resp.toolCalls))
