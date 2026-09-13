@@ -11,7 +11,7 @@ import java.nio.charset.StandardCharsets
 
 /**
  * 极简 OpenAI 兼容客户端：自定义 base URL + key + 模型。
- * 支持 tool calling（function calling），流式留给后续版本。
+ * 支持 tool calling（function calling）与单次视觉问答（chatVision）。
  */
 class LlmClient(
     private var baseUrl: String,
@@ -37,35 +37,52 @@ class LlmClient(
 
     /** @param tools OpenAI function 定义数组，可空 */
     fun chat(messages: List<Message>, tools: JSONArray? = null, temperature: Double = 0.7): Response {
+        val arr = JSONArray()
+        for (m in messages) {
+            val o = JSONObject()
+            o.put("role", m.role)
+            when {
+                m.toolCalls != null -> {
+                    o.put("content", m.content ?: JSONObject.NULL)
+                    val tcs = JSONArray()
+                    for (tc in m.toolCalls) {
+                        tcs.put(JSONObject().put("id", tc.id).put("type", "function")
+                            .put("function", JSONObject().put("name", tc.name).put("arguments", tc.argumentsJson)))
+                    }
+                    o.put("tool_calls", tcs)
+                }
+                m.toolCallId != null -> {
+                    o.put("content", m.content ?: "")
+                    o.put("tool_call_id", m.toolCallId)
+                }
+                else -> o.put("content", m.content ?: JSONObject.NULL)
+            }
+            arr.put(o)
+        }
         val body = JSONObject().apply {
             put("model", model)
             put("temperature", temperature)
-            val arr = JSONArray()
-            for (m in messages) {
-                val o = JSONObject()
-                o.put("role", m.role)
-                when {
-                    m.toolCalls != null -> {
-                        o.put("content", m.content ?: JSONObject.NULL)
-                        val tcs = JSONArray()
-                        for (tc in m.toolCalls) {
-                            tcs.put(JSONObject().put("id", tc.id).put("type", "function")
-                                .put("function", JSONObject().put("name", tc.name).put("arguments", tc.argumentsJson)))
-                        }
-                        o.put("tool_calls", tcs)
-                    }
-                    m.toolCallId != null -> {
-                        o.put("content", m.content ?: "")
-                        o.put("tool_call_id", m.toolCallId)
-                    }
-                    else -> o.put("content", m.content ?: JSONObject.NULL)
-                }
-                arr.put(o)
-            }
             put("messages", arr)
             if (tools != null && tools.length() > 0) put("tools", tools)
         }
+        return post(body)
+    }
 
+    /** 单次视觉问答：把本地图片（base64）发给多模态模型，返回文本回答。 */
+    fun chatVision(question: String, imageBase64: String, mime: String, temperature: Double = 0.2): String? {
+        val content = JSONArray()
+            .put(JSONObject().put("type", "text").put("text", question))
+            .put(JSONObject().put("type", "image_url")
+                .put("image_url", JSONObject().put("url", "data:$mime;base64,$imageBase64")))
+        val body = JSONObject()
+            .put("model", model)
+            .put("temperature", temperature)
+            .put("messages", JSONArray().put(
+                JSONObject().put("role", "user").put("content", content)))
+        return post(body).content
+    }
+
+    private fun post(body: JSONObject): Response {
         val conn = URL("$baseUrl/chat/completions").openConnection() as HttpURLConnection
         return try {
             conn.requestMethod = "POST"
@@ -80,7 +97,7 @@ class LlmClient(
 
             val code = conn.responseCode
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-            val text = BufferedReader(InputStreamReader(stream ?: ByteArrayInputStream(ByteArray(0)), StandardCharsets.UTF_8))                .use { it.readText() }
+            val text = BufferedReader(InputStreamReader(stream ?: ByteArrayInputStream(ByteArray(0)), StandardCharsets.UTF_8)).use { it.readText() }
             if (code !in 200..299) throw LlmException("HTTP $code: ${text.take(400)}")
 
             val json = JSONObject(text)

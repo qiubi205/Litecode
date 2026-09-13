@@ -92,6 +92,22 @@ class AgentEngine(private val context: Context) {
                             onEvent?.invoke("🛰️ 子代理完成")
                             JSONObject().put("ok", true).put("result", r)
                         }
+                        "open_file" -> FileTools.openFile(args.optString("path", ""), context)
+                        "look_at_file" -> {
+                            val img = try { FileTools.readImageBase64(args.optString("path", "")) } catch (e: Exception) { null }
+                            if (img == null) {
+                                JSONObject().put("error", "不是图片或读取失败")
+                            } else {
+                                onEvent?.invoke("👁 视觉识别中…")
+                                val answer = try {
+                                    client.chatVision(
+                                        args.optString("question", "请详细描述这张图片的内容"),
+                                        img.first, img.second)
+                                } catch (e: Exception) { null }
+                                if (answer != null) JSONObject().put("ok", true).put("answer", answer)
+                                else JSONObject().put("error", "视觉识别失败（模型可能不支持图片输入）")
+                            }
+                        }
                         "list_files" -> FileTools.listFiles(args.optString("path", "."))
                         "read_file" -> FileTools.readFile(args.getString("path"))
                         "write_file" -> FileTools.writeFile(
@@ -129,6 +145,7 @@ class AgentEngine(private val context: Context) {
 2. 文件（/sdcard）：list_files / read_file / write_file，路径相对于 /sdcard（如 Download、Documents/xx.txt）。删除操作一律拒绝，让用户手动做。
 3. 长期记忆：你的工作区在 /sdcard/PocketHarness/（MEMORY.md = 长期记忆，AGENTS.md = 行为守则）。对话开始时若记忆与本任务相关请参考；对话结束前，把值得长期记住的信息（用户偏好/重要结论/路径）用 write_file（append=true）写入 MEMORY.md。记忆在下次对话自动注入你的 system 提示词，跨会话生效。
 4. 子代理：复杂任务（多文件整理/长文本处理/批量分析）可调 spawn_agent 派生子代理并行处理。给它清晰独立的 task 和必要 context；子代理只有文件工具、没有手机控制，结果会原样返回给你汇总。适合用来读大量文件、写草稿等重活，别为小事派它。
+5. 文件直达：open_file 用系统应用直接打开文件（一步到位，不要手动导航文件管理器）；APK 安装等敏感操作先征得用户确认。look_at_file 直接识别图片内容（需多模态模型），看完后再决定下一步。
 
 行为准则：
 - 用户下达任务后，规划最短路径执行，不要反复确认。
