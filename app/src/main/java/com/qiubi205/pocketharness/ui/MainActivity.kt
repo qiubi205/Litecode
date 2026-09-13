@@ -17,6 +17,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.qiubi205.pocketharness.AgentEngine
 import com.qiubi205.pocketharness.R
 import com.qiubi205.pocketharness.a11y.HarnessAccessibilityService
+import com.qiubi205.pocketharness.session.SessionStore
 import com.qiubi205.pocketharness.workspace.Workspace
 
 /**
@@ -26,6 +27,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var engine: AgentEngine
     private lateinit var prefs: Prefs
+    private lateinit var store: SessionStore
     private lateinit var status: TextView
     private lateinit var log: TextView
     private lateinit var scroll: ScrollView
@@ -40,8 +42,17 @@ class MainActivity : AppCompatActivity() {
         engine.configure(prefs.baseUrl, prefs.apiKey, prefs.model)
         engine.onEvent = { ev -> runOnUiThread { appendLog(ev) } }
 
+        // 会话：恢复上次激活的会话（无则建新），历史回填引擎
+        store = SessionStore(java.io.File(Environment.getExternalStorageDirectory(), Workspace.DIR_NAME))
+        val s = try { store.ensureActive() } catch (e: Exception) { null }
+        if (s != null) {
+            engine.replaceHistory(s.messages)
+        }
+
         buildUi()
-        engine.reset()
+        if (s != null) {
+            appendLog("💬 已恢复会话「${s.name}」（${s.messages.size} 条消息）")
+        }
         requestStorage()
         val created = Workspace.seedIfFirstRun()
         if (created.isNotEmpty()) {
@@ -98,7 +109,13 @@ class MainActivity : AppCompatActivity() {
             addView(sendBtn)
         }
 
-        // 设置面板（首行点"设置"展开）
+        val sessionsBtn = TextView(this).apply {
+            text = "💬"
+            setPadding(pad, pad / 2, pad, pad / 2)
+            setOnClickListener { showSessionDialog() }
+        }
+
+        // 设置面板（首行点"设置"展开）：会话管理按钮放状态行右侧
         settingsPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
@@ -123,20 +140,92 @@ class MainActivity : AppCompatActivity() {
 
         val settingsBtn = TextView(this).apply {
             text = getString(R.string.settings)
-            setPadding(pad, pad / 2, pad, pad / 2)
+            setPadding(pad, pad / 2, pad / 4, pad / 2)
             setOnClickListener { settingsPanel.visibility = if (settingsPanel.visibility == View.GONE) View.VISIBLE else View.GONE }
+        }
+
+        // 顶行：状态 + 设置 + 会话
+        val topRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(status, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(settingsBtn)
+            addView(sessionsBtn)
         }
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(status)
-            addView(settingsBtn)
+            addView(topRow)
             addView(settingsPanel)
             addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
             addView(inputRow)
         }
         setContentView(root)
         refreshStatus()
+    }
+
+    private fun saveActive() {
+        try {
+            val s = store.ensureActive()
+            s.messages.clear()
+            s.messages.addAll(engine.snapshotHistory())
+            store.save(s)
+        } catch (e: Exception) { /* 权限未给时静默 */ }
+    }
+
+    /** 会话管理：列表/新建/切换/删除 */
+    private fun showSessionDialog() {
+        val sessions = try { store.list() } catch (e: Exception) { emptyList<SessionStore.Session>() }
+        val active = try { store.activeId() } catch (e: Exception) { null }
+        val items = Array(sessions.size + 1) { i ->
+            if (i == 0) "➕ 新建会话"
+            else (if (sessions[i - 1].id == active) "● " else "  ") +
+                sessions[i - 1].name + "（${sessions[i - 1].messages.size}条）"
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("会话")
+            .setItems(items) { _, which ->
+                try {
+                    if (which == 0) {
+                        switchTo(store.create("会话 ${sessions.size + 1}"))
+                    } else {
+                        val target = sessions[which - 1]
+                        if (target.id == active) return@setItems
+                        android.app.AlertDialog.Builder(this)
+                            .setTitle(target.name)
+                            .setItems(arrayOf("切换到此会话", "删除此会话")) { _, w ->
+                                try {
+                                    if (w == 0) switchTo(target)
+                                    else {
+                                        val wasActive = target.id == active
+                                        store.delete(target.id)
+                                        appendLog("🗑 已删除「${target.name}」")
+                                        if (wasActive) {
+                                            val next = try { store.ensureActive() } catch (e: Exception) { null }
+                                            if (next != null) switchTo(next, saveCurrent = false)
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    appendLog("⚠️ 会话操作失败：${e.message}（检查存储权限）")
+                                }
+                            }.show()
+                    }
+                } catch (e: Exception) {
+                    appendLog("⚠️ 会话操作失败：${e.message}（检查存储权限）")
+                }
+            }
+            .show()
+    }
+
+    private fun switchTo(s: SessionStore.Session, saveCurrent: Boolean = true) {
+        if (saveCurrent) saveActive() // 切走前保存当前（删除后切换时不保存）
+        store.setActive(s.id)
+        engine.replaceHistory(s.messages)
+        log.text = ""
+        appendLog("💬 会话「${s.name}」（${s.messages.size} 条消息）")
+        // 把旧消息渲染出来（最多 30 条，防止 UI 卡顿）
+        s.messages.filter { it.role != "system" }.takeLast(30).forEach { m ->
+            appendLog(if (m.role == "user") "你：${m.content ?: ""}" else "🤖：${m.content ?: "(工具调用)"}")
+        }
     }
 
     private fun refreshStatus() {
@@ -160,6 +249,7 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 refreshStatus()
                 if (reply != null) appendLog(reply) // "…思考中" 行保留，回复接在后面
+                saveActive() // 每轮落盘
             }
         }
     }

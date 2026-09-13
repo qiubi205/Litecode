@@ -2,6 +2,7 @@ package com.qiubi205.pocketharness
 
 import android.content.Context
 import com.qiubi205.pocketharness.llm.LlmClient
+import com.qiubi205.pocketharness.agent.SubAgent
 import com.qiubi205.pocketharness.tools.DeviceTools
 import com.qiubi205.pocketharness.tools.FileTools
 import com.qiubi205.pocketharness.workspace.Workspace
@@ -30,6 +31,18 @@ class AgentEngine(private val context: Context) {
 
     val messageCount: Int get() = history.size
 
+    /** 用外部加载的历史替换当前上下文（system 位刷新为最新记忆注入） */
+    fun replaceHistory(msgs: List<LlmClient.Message>) {
+        history.clear()
+        history.addAll(msgs)
+        val fresh = LlmClient.Message("system", systemPrompt())
+        if (history.isNotEmpty() && history[0].role == "system") history[0] = fresh
+        else history.add(0, fresh)
+    }
+
+    /** 导出当前全部消息（含 system）用于持久化 */
+    fun snapshotHistory(): List<LlmClient.Message> = history.toList()
+
     fun reset() {
         history.clear()
         history.add(LlmClient.Message("system", systemPrompt()))
@@ -55,6 +68,7 @@ class AgentEngine(private val context: Context) {
         val tools = JSONArray().apply {
             for (i in 0 until DeviceTools.definitions.length()) put(DeviceTools.definitions.get(i))
             for (i in 0 until FileTools.definitions.length()) put(FileTools.definitions.get(i))
+            put(spawnAgentDefinition())
         }
         var rounds = 0
         while (rounds < maxToolRounds) {
@@ -68,6 +82,16 @@ class AgentEngine(private val context: Context) {
                     onEvent?.invoke("🔧 $tc.name …")
                     val args = try { JSONObject(tc.argumentsJson.ifBlank { "{}" }) } catch (e: Exception) { JSONObject() }
                     val result = when (tc.name) {
+                        "spawn_agent" -> {
+                            onEvent?.invoke("🛰️ 子代理启动：${args.optString("task", "").take(30)}…")
+                            val r = SubAgent.run(
+                                client,
+                                task = args.optString("task", "").ifBlank { "（未提供任务）" },
+                                context = args.optString("context", "")
+                            ) { ev -> onEvent?.invoke(ev) }
+                            onEvent?.invoke("🛰️ 子代理完成")
+                            JSONObject().put("ok", true).put("result", r)
+                        }
                         "list_files" -> FileTools.listFiles(args.optString("path", "."))
                         "read_file" -> FileTools.readFile(args.getString("path"))
                         "write_file" -> FileTools.writeFile(
@@ -96,6 +120,7 @@ class AgentEngine(private val context: Context) {
 1. 手机操作（无障碍引擎）：get_screen 看屏，tap/swipe/input_text/press_back/press_home 操作。原则：先 get_screen 再动手；坐标用控件树里 <> 标注的中心点；一次只做一步，观察结果再继续。
 2. 文件（/sdcard）：list_files / read_file / write_file，路径相对于 /sdcard（如 Download、Documents/xx.txt）。删除操作一律拒绝，让用户手动做。
 3. 长期记忆：你的工作区在 /sdcard/PocketHarness/（MEMORY.md = 长期记忆，AGENTS.md = 行为守则）。对话开始时若记忆与本任务相关请参考；对话结束前，把值得长期记住的信息（用户偏好/重要结论/路径）用 write_file（append=true）写入 MEMORY.md。记忆在下次对话自动注入你的 system 提示词，跨会话生效。
+4. 子代理：复杂任务（多文件整理/长文本处理/批量分析）可调 spawn_agent 派生子代理并行处理。给它清晰独立的 task 和必要 context；子代理只有文件工具、没有手机控制，结果会原样返回给你汇总。适合用来读大量文件、写草稿等重活，别为小事派它。
 
 行为准则：
 - 用户下达任务后，规划最短路径执行，不要反复确认。
@@ -103,5 +128,18 @@ class AgentEngine(private val context: Context) {
 - 执行结果如实汇报；失败时读屏诊断原因并尝试一次替代方案。
 - 用中文回复，简洁。
         """.trimIndent()
+
+        /** spawn_agent 的 function 定义（放这里避免循环依赖 tools 包） */
+        private fun spawnAgentDefinition(): JSONObject =
+            JSONObject().put("type", "function")
+                .put("function", JSONObject()
+                    .put("name", "spawn_agent")
+                    .put("description", "派生一个子代理执行独立任务并等待其结果。子代理只有文件工具（list/read/write，相对 /sdcard），没有手机操作能力。")
+                    .put("parameters", JSONObject()
+                        .put("type", "object")
+                        .put("properties", JSONObject()
+                            .put("task", JSONObject().put("type", "string").put("description", "子代理要完成的任务，写清楚目标和产出物"))
+                            .put("context", JSONObject().put("type", "string").put("description", "主代理提供的背景信息（可选）")))
+                        .put("required", JSONArray().put("task"))))
     }
 }
