@@ -4,6 +4,7 @@ import android.content.Context
 import com.qiubi205.pocketharness.llm.LlmClient
 import com.qiubi205.pocketharness.tools.DeviceTools
 import com.qiubi205.pocketharness.tools.FileTools
+import com.qiubi205.pocketharness.workspace.Workspace
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.concurrent.thread
