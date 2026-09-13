@@ -18,11 +18,11 @@ object DeviceTools {
         return try {
             when (name) {
                 "get_screen" -> getScreen(a11y)
-                "tap" -> ok(a11y.tap(args.getFloat("x"), args.getFloat("y")))
+                "tap" -> ok(a11y.tap(args.getDouble("x").toFloat(), args.getDouble("y").toFloat()))
                 "swipe" -> ok(a11y.swipe(
-                    args.getFloat("x1"), args.getFloat("y1"),
-                    args.getFloat("x2"), args.getFloat("y2"),
-                    (args.optDouble("duration_ms", 300.0) * 1000).toLong().coerceIn(100, 10_000)))
+                    args.getDouble("x1").toFloat(), args.getDouble("y1").toFloat(),
+                    args.getDouble("x2").toFloat(), args.getDouble("y2").toFloat(),
+                    args.optDouble("duration_ms", 300.0).toLong().coerceIn(100, 10_000)))
                 "input_text" -> ok(a11y.inputText(
                     args.getString("text"),
                     args.optDouble("x", Double.NaN).takeUnless { it.isNaN() }?.toFloat(),
