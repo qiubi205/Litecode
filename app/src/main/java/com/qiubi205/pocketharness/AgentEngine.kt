@@ -17,6 +17,9 @@ class AgentEngine(private val context: Context) {
     private val client = LlmClient("", "", "")
     private val history = mutableListOf<LlmClient.Message>()
 
+    /** 每轮对话开始时重新读 /sdcard/PocketHarness/MEMORY.md，跨会话记忆即时生效 */
+    private fun systemPrompt(): String = SYSTEM_PROMPT + "\n\n# 当前长期记忆（/sdcard/${Workspace.DIR_NAME}/MEMORY.md 实时内容）\n\n" + Workspace.readMemory()
+
     /** 工具循环上限，防止死循环烧 token */
     var maxToolRounds = 8
     /** 每轮回调（UI 线程刷新用） */
@@ -28,12 +31,14 @@ class AgentEngine(private val context: Context) {
 
     fun reset() {
         history.clear()
-        history.add(LlmClient.Message("system", SYSTEM_PROMPT))
+        history.add(LlmClient.Message("system", systemPrompt()))
     }
 
     /** 异步执行一轮对话；onEvent 依次收到 agent 的可见输出 */
     fun send(userText: String, onDone: (String?) -> Unit) {
         if (history.isEmpty()) reset()
+        // 每次发消息都刷新 system 提示词，把最新 MEMORY.md 注入进去
+        history[0] = LlmClient.Message("system", systemPrompt())
         history.add(LlmClient.Message("user", userText))
         thread(name = "agent-loop") {
             try {
@@ -89,6 +94,7 @@ class AgentEngine(private val context: Context) {
 
 1. 手机操作（无障碍引擎）：get_screen 看屏，tap/swipe/input_text/press_back/press_home 操作。原则：先 get_screen 再动手；坐标用控件树里 <> 标注的中心点；一次只做一步，观察结果再继续。
 2. 文件（/sdcard）：list_files / read_file / write_file，路径相对于 /sdcard（如 Download、Documents/xx.txt）。删除操作一律拒绝，让用户手动做。
+3. 长期记忆：你的工作区在 /sdcard/PocketHarness/（MEMORY.md = 长期记忆，AGENTS.md = 行为守则）。对话开始时若记忆与本任务相关请参考；对话结束前，把值得长期记住的信息（用户偏好/重要结论/路径）用 write_file（append=true）写入 MEMORY.md。记忆在下次对话自动注入你的 system 提示词，跨会话生效。
 
 行为准则：
 - 用户下达任务后，规划最短路径执行，不要反复确认。

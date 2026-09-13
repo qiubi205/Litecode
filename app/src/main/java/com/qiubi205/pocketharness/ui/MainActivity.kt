@@ -1,7 +1,11 @@
 package com.qiubi205.pocketharness.ui
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.provider.Settings
 import android.view.View
 import android.widget.Button
@@ -13,6 +17,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.qiubi205.pocketharness.AgentEngine
 import com.qiubi205.pocketharness.R
 import com.qiubi205.pocketharness.a11y.HarnessAccessibilityService
+import com.qiubi205.pocketharness.workspace.Workspace
 
 /**
  * 单 Activity 极简界面：状态条 + 对话流 + 输入行。
@@ -37,6 +42,27 @@ class MainActivity : AppCompatActivity() {
 
         buildUi()
         engine.reset()
+        requestStorage()
+        val created = Workspace.seedIfFirstRun()
+        if (created.isNotEmpty()) {
+            appendLog("📁 已创建工作区 /sdcard/${Workspace.DIR_NAME}/ ：${created.joinToString("、")}")
+        }
+    }
+
+    /** 存储权限：Android 11+ 走 MANAGE_EXTERNAL_STORAGE 引导页，10 走运行时授权 */
+    private fun requestStorage() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                appendLog("⚠️ 需要存储权限才能建工作区：点击后请在系统页允许「所有文件访问」")
+                startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    android.net.Uri.parse("package:$packageName")))
+            }
+        } else if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(
+                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                Manifest.permission.READ_EXTERNAL_STORAGE), 1)
+        }
     }
 
     private fun buildUi() {
@@ -143,5 +169,11 @@ class MainActivity : AppCompatActivity() {
         scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
     }
 
-    override fun onResume() { super.onResume(); refreshStatus() }
+    override fun onResume() {
+        super.onResume()
+        refreshStatus()
+        // 用户可能刚授予存储权限回来，补播种
+        val created = Workspace.seedIfFirstRun()
+        if (created.isNotEmpty()) appendLog("📁 工作区已就绪：${created.joinToString("、")} 已创建")
+    }
 }
