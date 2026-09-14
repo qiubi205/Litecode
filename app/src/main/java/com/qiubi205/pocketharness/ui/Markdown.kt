@@ -6,6 +6,7 @@ import android.text.Spanned
 import android.text.style.BackgroundColorSpan
 import android.text.style.RelativeSizeSpan
 import android.text.style.StyleSpan
+import android.text.style.TypefaceSpan
 
 /**
  * Minimal Markdown renderer built on SpannableStringBuilder.
@@ -58,7 +59,7 @@ object Markdown {
     private fun appendCodeLine(out: SpannableStringBuilder, line: String) {
         val start = out.length
         out.append(line)
-        out.setSpan(StyleSpan(Typeface.MONOSPACE), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        out.setSpan(TypefaceSpan(Typeface.MONOSPACE), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         out.setSpan(BackgroundColorSpan(CODE_BG), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     }
 
@@ -79,7 +80,7 @@ object Markdown {
                 if (end >= 0) {
                     val start = out.length
                     out.append(text.substring(i + 1, end))
-                    out.setSpan(StyleSpan(Typeface.MONOSPACE), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    out.setSpan(TypefaceSpan(Typeface.MONOSPACE), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     i = end + 1
                     continue
                 }
