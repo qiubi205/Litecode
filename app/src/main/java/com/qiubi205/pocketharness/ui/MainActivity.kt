@@ -17,6 +17,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.qiubi205.pocketharness.AgentEngine
 import com.qiubi205.pocketharness.R
 import com.qiubi205.pocketharness.a11y.HarnessAccessibilityService
+import com.qiubi205.pocketharness.tools.DeviceTools
 import com.qiubi205.pocketharness.session.SessionStore
 import com.qiubi205.pocketharness.workspace.Workspace
 
@@ -103,10 +104,21 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener { onSend() }
         }
 
+        // 停止按钮：中断当前工具循环（引擎在安全点退出）
+        val stopBtn = Button(this).apply {
+            text = "⏹"
+            setOnClickListener {
+                engine.cancel()
+                DeviceTools.cancelled = true
+                appendLog("⏹ 已请求停止")
+            }
+        }
+
         val inputRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(pad / 2, 0, pad / 2, pad / 2)
             addView(input, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(stopBtn)
             addView(sendBtn)
         }
 
@@ -263,7 +275,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun appendLog(s: String) {
-        log.append(if (log.text.isEmpty()) s else "\n$s")
+        // 机器人回复跑 mini markdown 渲染；其余消息纯文本
+        val rendered: CharSequence = if (s.startsWith("🤖：")) {
+            try {
+                val spanned = com.qiubi205.pocketharness.ui.Markdown.render(s.removePrefix("🤖："))
+                android.text.SpannableStringBuilder("🤖：").append(spanned)
+            } catch (e: Exception) { s }
+        } else s
+        if (log.text.isEmpty()) log.text = rendered
+        else {
+            log.append("\n")
+            log.append(rendered)
+        }
         scrollToBottom()
     }
 

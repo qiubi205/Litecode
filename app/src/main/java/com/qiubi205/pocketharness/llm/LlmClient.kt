@@ -82,9 +82,9 @@ class LlmClient(
         return post(body).content
     }
 
-    private fun post(body: JSONObject): Response {
+    private fun post(body: JSONObject, attempt: Int = 0): Response {
         val conn = URL("$baseUrl/chat/completions").openConnection() as HttpURLConnection
-        return try {
+        try {
             conn.requestMethod = "POST"
             conn.connectTimeout = 15_000
             conn.readTimeout = 180_000   // 慢模型友好
@@ -98,7 +98,14 @@ class LlmClient(
             val code = conn.responseCode
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream
             val text = BufferedReader(InputStreamReader(stream ?: ByteArrayInputStream(ByteArray(0)), StandardCharsets.UTF_8)).use { it.readText() }
-            if (code !in 200..299) throw LlmException("HTTP $code: ${text.take(400)}")
+            if (code !in 200..299) {
+                // 网络层/过载类错误重试（429/5xx），其他 4xx 直接抛
+                if (attempt < 2 && (code == 429 || code >= 500)) {
+                    Thread.sleep(if (attempt == 0) 2_000 else 5_000)
+                    return post(body, attempt + 1)
+                }
+                throw LlmException("HTTP $code: ${text.take(400)}")
+            }
 
             val json = JSONObject(text)
             val choice = json.optJSONArray("choices")?.optJSONObject(0)
@@ -111,12 +118,23 @@ class LlmClient(
                     tcs.add(ToolCall(tc.optString("id"), fn.optString("name"), fn.optString("arguments", "{}")))
                 }
             }
-            Response(
+            return Response(
                 content = msg?.optString("content")?.takeIf { it.isNotEmpty() && it != "null" },
                 toolCalls = tcs,
                 finishReason = choice?.optString("finish_reason"),
                 rawUsage = json.optJSONObject("usage")
             )
+        } catch (e: LlmException) {
+            throw e
+        } catch (e: InterruptedException) {
+            throw LlmException("重试等待被中断")
+        } catch (e: java.io.IOException) {
+            // 网络异常（超时/断连）重试 2 次
+            if (attempt < 2) {
+                Thread.sleep(if (attempt == 0) 2_000 else 5_000)
+                return post(body, attempt + 1)
+            }
+            throw LlmException("网络异常（已重试2次）: ${e.message}")
         } finally {
             conn.disconnect()
         }

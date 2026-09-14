@@ -107,6 +107,48 @@ object FileTools {
     fun delete(recursive: Boolean = false): Nothing =
         throw UnsupportedOperationException("删除操作不在 agent 自动工具内，请手动处理")
 
+    /** 回收站目录：/sdcard/PocketHarness/trash/ */
+    private fun trashDir(): File {
+        val d = File(Environment.getExternalStorageDirectory(),
+            com.qiubi205.pocketharness.workspace.Workspace.DIR_NAME + "/trash")
+        if (!d.exists()) d.mkdirs()
+        return d
+    }
+
+    /** 删除 = 移入回收站（可手动恢复），不真删 */
+    fun trashFile(relPath: String): JSONObject {
+        val src = resolve(relPath)
+        require(src.exists()) { "不存在: $relPath" }
+        val dst = File(trashDir(), "${System.currentTimeMillis()}_${src.name}")
+        if (!src.renameTo(dst)) {
+            // rename 失败（跨挂载点等）退化到复制+删源
+            if (src.isDirectory) return JSONObject().put("error", "目录移动失败，请手动处理: $relPath")
+            src.copyTo(dst, overwrite = true)
+            src.delete()
+        }
+        return JSONObject().put("ok", true).put("trashed_to", dst.absolutePath)
+            .put("hint", "文件已移入回收站，可手动恢复")
+    }
+
+    /** 移动/重命名；目标已存在则报错 */
+    fun moveFile(srcPath: String, dstPath: String): JSONObject {
+        val src = resolve(srcPath)
+        require(src.exists()) { "源不存在: $srcPath" }
+        val dst = resolve(dstPath)
+        require(!dst.exists()) { "目标已存在: $dstPath" }
+        dst.parentFile?.mkdirs()
+        if (!src.renameTo(dst)) {
+            if (src.isDirectory) {
+                val ok = src.copyRecursively(dst, overwrite = false)
+                if (ok) src.deleteRecursively() else return JSONObject().put("error", "目录复制失败: $srcPath")
+            } else {
+                src.copyTo(dst, overwrite = false)
+                src.delete()
+            }
+        }
+        return JSONObject().put("ok", true).put("moved_to", dst.absolutePath)
+    }
+
     private fun resolve(relPath: String): File {
         val base = base()
         val f = if (relPath.startsWith("/")) File(relPath) else File(base, relPath)
@@ -138,16 +180,24 @@ object FileTools {
             .put("path", JSONObject().put("type", "string").put("description", "相对 /sdcard 的图片路径，如 Download/xx.png"))
             .put("question", JSONObject().put("type", "string").put("description", "想问关于图片的问题，如图片里有什么/验证码内容")))
         )
-        .put(fn("open_file", "用系统默认应用打开文件（一步到位，无需手动导航）", JSONObject()
-            .put("path", JSONObject().put("type", "string").put("description", "相对 /sdcard 的文件路径"))
-            .put("needs_confirm", JSONObject().put("type", "boolean").put("description", "APK安装等敏感操作须为true，表示已获用户确认")))
+        .put(fn("delete_file", "删除文件/目录（实际移入 /sdcard/PocketHarness/trash/ 回收站，可手动恢复）", JSONObject()
+            .put("path", JSONObject().put("type", "string")))
+        )
+        .put(fn("move_file", "移动/重命名文件或目录（目标已存在会报错）", JSONObject()
+            .put("src", JSONObject().put("type", "string"))
+            .put("dst", JSONObject().put("type", "string")))
         )
 
-    private fun fn(name: String, desc: String, params: JSONObject): JSONObject =
-        JSONObject().put("type", "function")
+    private fun fn(name: String, desc: String, params: JSONObject): JSONObject {
+        // 简单规则：所有列出的参数都必填
+        val required = JSONArray()
+        val keys = params.keys()
+        while (keys.hasNext()) required.put(keys.next())
+        return JSONObject().put("type", "function")
             .put("function", JSONObject()
                 .put("name", name).put("description", desc)
                 .put("parameters", JSONObject()
                     .put("type", "object").put("properties", params)
-                    .put("required", JSONArray().put("path"))))
+                    .put("required", required)))
+    }
 }

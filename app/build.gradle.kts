@@ -11,8 +11,8 @@ android {
         applicationId = "com.qiubi205.pocketharness"
         minSdk = 29          // Android 10，对齐你的荣耀 Play5
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 5
+        versionName = "0.5.0"
     }
 
     buildTypes {

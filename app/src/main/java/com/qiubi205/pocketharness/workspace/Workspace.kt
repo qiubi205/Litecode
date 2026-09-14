@@ -21,6 +21,13 @@ object Workspace {
     fun memoryFile(): File = File(dir(), "MEMORY.md")
     fun agentsFile(): File = File(dir(), "AGENTS.md")
 
+    /** 技能目录：/sdcard/PocketHarness/skills/<name>/SKILL.md */
+    fun skillsDir(): File {
+        val d = File(dir(), "skills")
+        if (!d.exists()) d.mkdirs()
+        return d
+    }
+
     /**
      * 首次启动播种引导文件；已存在的不覆盖（记忆是持久的）。
      * 返回本次新建的文件名列表，仅用于日志显示。
@@ -52,6 +59,33 @@ object Workspace {
 """.trimIndent() + "\n"
             )
             created.add("AGENTS.md")
+        }
+        // 播种 skills 目录 + 示例技能（已存在不覆盖）
+        val exDir = File(skillsDir(), "example")
+        val exSkill = File(exDir, "SKILL.md")
+        if (!exSkill.exists()) {
+            try {
+                exDir.mkdirs()
+                exSkill.writeText(
+                    """---
+name: tidy-download
+description: 整理 /sdcard/Download 目录：按扩展名分类移动文件到对应文件夹
+---
+
+# 整理 Download 目录
+
+任务匹配（整理/归类下载目录）时按以下手册行动：
+
+1. list_files Download 列出全部文件，先报给用户当前有什么。
+2. 建议分类方案（图片→Pictures/Download整理、文档→Documents/下载整理、
+   压缩包→Download/archives、安装包→Download/apks），等用户确认。
+3. 用户确认后用 move_file 逐个移动，每 10 个汇报一次进度。
+4. 只动文件不动目录；同名冲突跳过并汇报。
+5. 结束后 list_files 汇总结果，并询问是否清空回收站。
+""".trimIndent() + "\n"
+                )
+                created.add("skills/example/SKILL.md")
+            } catch (e: Exception) { /* 权限未给时静默，onResume 重试 */ }
         }
         } catch (e: Exception) {
             // 权限未授时 mkdirs/write 会失败，静默跳过，onResume 会重试
