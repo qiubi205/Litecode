@@ -264,7 +264,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun appendLog(s: String) {
         log.append(if (log.text.isEmpty()) s else "\n$s")
+        scrollToBottom()
+    }
+
+    /** 强制滚到底部：双 post 兜底（等布局测量完成后再滚一次），LLM 回复始终置底可见 */
+    private fun scrollToBottom() {
         scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
+        scroll.postDelayed({ scroll.fullScroll(View.FOCUS_DOWN) }, 150)
     }
 
     override fun onResume() {

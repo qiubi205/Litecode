@@ -4,12 +4,12 @@ import android.content.Context
 import android.content.SharedPreferences
 import org.json.JSONObject
 
-/** 配置持久化：LLM 端点 + key + 模型名 */
+/** 配置持久化：LLM 端点 + key + 模型名（默认智谱开放平台 glm-5.3-flash） */
 class Prefs(ctx: Context) {
     private val sp: SharedPreferences = ctx.getSharedPreferences("pocketharness", Context.MODE_PRIVATE)
 
     var baseUrl: String
-        get() = sp.getString("base_url", "https://api.openai.com/v1")!!
+        get() = sp.getString("base_url", "https://open.bigmodel.cn/api/paas/v4/")!!
         set(v) = sp.edit().putString("base_url", v).apply()
 
     var apiKey: String
@@ -17,7 +17,7 @@ class Prefs(ctx: Context) {
         set(v) = sp.edit().putString("api_key", v).apply()
 
     var model: String
-        get() = sp.getString("model", "gpt-4o-mini")!!
+        get() = sp.getString("model", "glm-5.3-flash")!!
         set(v) = sp.edit().putString("model", v).apply()
 
     var maxToolRounds: Int
