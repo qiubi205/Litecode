@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">PocketHarness</string>
-    <string name="a11y_desc">允许 PocketHarness 读取屏幕内容并代表你执行点击、滑动等操作，用于 AI 代理控制手机。请仅在信任的提示词下启用。</string>
+    <string name="app_name">Litecode</string>
+    <string name="a11y_desc">允许 Litecode 读取屏幕内容并代表你执行点击、滑动等操作，用于 AI 代理控制手机。请仅在信任的提示词下启用。</string>
     <string name="send">发送</string>
     <string name="hint_input">给代理下达指令…</string>
     <string name="settings">设置</string>

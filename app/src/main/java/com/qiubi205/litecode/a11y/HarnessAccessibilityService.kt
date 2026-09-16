@@ -1,4 +1,4 @@
-package com.qiubi205.pocketharness.a11y
+package com.qiubi205.litecode.a11y
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription

@@ -1,16 +1,16 @@
-package com.qiubi205.pocketharness.workspace
+package com.qiubi205.litecode.workspace
 
 import android.os.Environment
 import java.io.File
 
 /**
- * Agent 工作区：/sdcard/PocketHarness/
+ * Agent 工作区：/sdcard/Litecode/
  * 首次启动自动创建并写入引导文件（MEMORY.md / AGENTS.md）。
  * SYSTEM_PROMPT 只放「灵魂规则」，长期记忆放文件，每次对话自动注入。
  */
 object Workspace {
 
-    const val DIR_NAME = "PocketHarness"
+    const val DIR_NAME = "Litecode"
 
     fun dir(): File {
         val d = File(Environment.getExternalStorageDirectory(), DIR_NAME)
@@ -21,7 +21,7 @@ object Workspace {
     fun memoryFile(): File = File(dir(), "MEMORY.md")
     fun agentsFile(): File = File(dir(), "AGENTS.md")
 
-    /** 技能目录：/sdcard/PocketHarness/skills/<name>/SKILL.md */
+    /** 技能目录：/sdcard/Litecode/skills/<name>/SKILL.md */
     fun skillsDir(): File {
         val d = File(dir(), "skills")
         if (!d.exists()) d.mkdirs()
@@ -37,7 +37,7 @@ object Workspace {
         try {
         if (!memoryFile().exists()) {
             memoryFile().writeText(
-                """# MEMORY.md - PocketHarness 长期记忆
+                """# MEMORY.md - Litecode 长期记忆
 
 用 list_files / read_file 检查我有没有写过重要内容；每次对话结束前，把值得长期记住的
 （用户偏好、任务结论、重要路径）用 write_file 追加到本文件。下次对话我会自动读到它。

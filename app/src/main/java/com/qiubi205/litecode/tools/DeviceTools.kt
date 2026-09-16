@@ -1,10 +1,10 @@
-package com.qiubi205.pocketharness.tools
+package com.qiubi205.litecode.tools
 
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import com.qiubi205.pocketharness.a11y.HarnessAccessibilityService
+import com.qiubi205.litecode.a11y.HarnessAccessibilityService
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -34,7 +34,7 @@ object DeviceTools {
                 args.optDouble("timeout_seconds", 15.0))
         }
         val a11y = HarnessAccessibilityService.instance()
-            ?: return JSONObject().put("error", "无障碍服务未启用。请到系统设置开启 PocketHarness 的无障碍服务。")
+            ?: return JSONObject().put("error", "无障碍服务未启用。请到系统设置开启 Litecode 的无障碍服务。")
         return try {
             when (name) {
                 "get_screen" -> getScreen(a11y)
@@ -86,7 +86,7 @@ object DeviceTools {
 
     private fun clipboardWrite(text: String): JSONObject {
         val cm = appContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        cm.setPrimaryClip(ClipData.newPlainText("pocketharness", text))
+        cm.setPrimaryClip(ClipData.newPlainText("litecode", text))
         return JSONObject().put("ok", true).put("written", text.length)
     }
 

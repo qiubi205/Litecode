@@ -1,4 +1,4 @@
-package com.qiubi205.pocketharness.tools
+package com.qiubi205.litecode.tools
 
 import android.content.Intent
 import android.graphics.Bitmap
@@ -107,10 +107,10 @@ object FileTools {
     fun delete(recursive: Boolean = false): Nothing =
         throw UnsupportedOperationException("删除操作不在 agent 自动工具内，请手动处理")
 
-    /** 回收站目录：/sdcard/PocketHarness/trash/ */
+    /** 回收站目录：/sdcard/Litecode/trash/ */
     private fun trashDir(): File {
         val d = File(Environment.getExternalStorageDirectory(),
-            com.qiubi205.pocketharness.workspace.Workspace.DIR_NAME + "/trash")
+            com.qiubi205.litecode.workspace.Workspace.DIR_NAME + "/trash")
         if (!d.exists()) d.mkdirs()
         return d
     }
@@ -180,7 +180,7 @@ object FileTools {
             .put("path", JSONObject().put("type", "string").put("description", "相对 /sdcard 的图片路径，如 Download/xx.png"))
             .put("question", JSONObject().put("type", "string").put("description", "想问关于图片的问题，如图片里有什么/验证码内容")))
         )
-        .put(fn("delete_file", "删除文件/目录（实际移入 /sdcard/PocketHarness/trash/ 回收站，可手动恢复）", JSONObject()
+        .put(fn("delete_file", "删除文件/目录（实际移入 /sdcard/Litecode/trash/ 回收站，可手动恢复）", JSONObject()
             .put("path", JSONObject().put("type", "string")))
         )
         .put(fn("move_file", "移动/重命名文件或目录（目标已存在会报错）", JSONObject()

@@ -1,7 +1,7 @@
-package com.qiubi205.pocketharness.agent
+package com.qiubi205.litecode.agent
 
-import com.qiubi205.pocketharness.llm.LlmClient
-import com.qiubi205.pocketharness.tools.FileTools
+import com.qiubi205.litecode.llm.LlmClient
+import com.qiubi205.litecode.tools.FileTools
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.concurrent.thread
@@ -21,9 +21,9 @@ object SubAgent {
         onEvent: ((String) -> Unit)? = null
     ): String {
         val sys = """
-你是 PocketHarness 的子代理，由主代理派生，专注完成单一任务后交还结果。
+你是 Litecode 的子代理，由主代理派生，专注完成单一任务后交还结果。
 - 你只有文件工具（list_files / read_file / write_file，路径相对 /sdcard），没有手机操作能力。
-- 工作区：/sdcard/PocketHarness/。不要写入 MEMORY.md（那是主代理的），产出写到 /sdcard/PocketHarness/sub/<任务名>/ 下。
+- 工作区：/sdcard/Litecode/。不要写入 MEMORY.md（那是主代理的），产出写到 /sdcard/Litecode/sub/<任务名>/ 下。
 - 完成任务后，用一段简洁的文本汇报结果；不要反问用户，你没有和用户对话的通道。
         """.trimIndent()
 

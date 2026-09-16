@@ -1,4 +1,4 @@
-package com.qiubi205.pocketharness.ui
+package com.qiubi205.litecode.ui
 
 import android.Manifest
 import android.content.Intent
@@ -14,12 +14,12 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import com.qiubi205.pocketharness.AgentEngine
-import com.qiubi205.pocketharness.R
-import com.qiubi205.pocketharness.a11y.HarnessAccessibilityService
-import com.qiubi205.pocketharness.tools.DeviceTools
-import com.qiubi205.pocketharness.session.SessionStore
-import com.qiubi205.pocketharness.workspace.Workspace
+import com.qiubi205.litecode.AgentEngine
+import com.qiubi205.litecode.R
+import com.qiubi205.litecode.a11y.HarnessAccessibilityService
+import com.qiubi205.litecode.tools.DeviceTools
+import com.qiubi205.litecode.session.SessionStore
+import com.qiubi205.litecode.workspace.Workspace
 
 /**
  * 单 Activity 极简界面：状态条 + 对话流 + 输入行。
@@ -89,7 +89,7 @@ class MainActivity : AppCompatActivity() {
         log = TextView(this).apply {
             setPadding(pad, pad, pad, pad)
             setTextIsSelectable(true)
-            text = "PocketHarness 就绪。配置好 LLM 后下达指令。\n"
+            text = "Litecode 就绪。配置好 LLM 后下达指令。\n"
         }
         scroll = ScrollView(this).apply { addView(log) }
 
@@ -278,7 +278,7 @@ class MainActivity : AppCompatActivity() {
         // 机器人回复跑 mini markdown 渲染；其余消息纯文本
         val rendered: CharSequence = if (s.startsWith("🤖：")) {
             try {
-                val spanned = com.qiubi205.pocketharness.ui.Markdown.render(s.removePrefix("🤖："))
+                val spanned = com.qiubi205.litecode.ui.Markdown.render(s.removePrefix("🤖："))
                 android.text.SpannableStringBuilder("🤖：").append(spanned)
             } catch (e: Exception) { s }
         } else s

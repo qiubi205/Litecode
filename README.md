@@ -1,4 +1,4 @@
-# PocketHarness
+# Litecode
 
 手机原生轻量 AI Agent Harness（Android，纯 Kotlin，无第三方重依赖）。
 

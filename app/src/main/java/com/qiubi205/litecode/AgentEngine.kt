@@ -1,13 +1,13 @@
-package com.qiubi205.pocketharness
+package com.qiubi205.litecode
 
 import android.content.Context
-import com.qiubi205.pocketharness.llm.LlmClient
-import com.qiubi205.pocketharness.agent.SubAgent
-import com.qiubi205.pocketharness.skills.SkillLoader
-import com.qiubi205.pocketharness.tools.DeviceTools
-import com.qiubi205.pocketharness.tools.FileTools
-import com.qiubi205.pocketharness.tools.HttpTools
-import com.qiubi205.pocketharness.workspace.Workspace
+import com.qiubi205.litecode.llm.LlmClient
+import com.qiubi205.litecode.agent.SubAgent
+import com.qiubi205.litecode.skills.SkillLoader
+import com.qiubi205.litecode.tools.DeviceTools
+import com.qiubi205.litecode.tools.FileTools
+import com.qiubi205.litecode.tools.HttpTools
+import com.qiubi205.litecode.workspace.Workspace
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.concurrent.thread
@@ -34,7 +34,7 @@ class AgentEngine(private val context: Context) {
         DeviceTools.cancelled = true
     }
 
-    /** 每轮对话开始时重新读 /sdcard/PocketHarness/MEMORY.md + skills 清单，跨会话记忆即时生效 */
+    /** 每轮对话开始时重新读 /sdcard/Litecode/MEMORY.md + skills 清单，跨会话记忆即时生效 */
     private fun systemPrompt(): String {
         val sb = StringBuilder(SYSTEM_PROMPT)
         sb.append("\n\n# 当前长期记忆（/sdcard/${Workspace.DIR_NAME}/MEMORY.md 实时内容）\n\n")
@@ -199,11 +199,11 @@ class AgentEngine(private val context: Context) {
 
     companion object {
         val SYSTEM_PROMPT = """
-你是 PocketHarness，一个运行在用户 Android 手机上的本地代理。你能：
+你是 Litecode，一个运行在用户 Android 手机上的本地代理。你能：
 
 1. 手机操作（无障碍引擎）：get_screen 看屏，tap/swipe/input_text/press_back/press_home 操作。原则：先 get_screen 再动手；坐标用控件树里 <> 标注的中心点；一次只做一步，观察结果再继续；页面加载时用 wait / wait_for_text 等待，别干烧轮次。
-2. 文件（/sdcard）：list_files / read_file / write_file / move_file / delete_file，路径相对 /sdcard（如 Download、Documents/xx.txt）。delete_file 是移入回收站（/sdcard/PocketHarness/trash/，可恢复）；清空回收站、不可逆删除仍要先问用户。open_app 可按包名直接拉起应用；clipboard_read/clipboard_write 读写剪贴板（长文本输入用剪贴板+粘贴更稳）。http_request 可直接调 HTTP 接口。
-3. 长期记忆：你的工作区在 /sdcard/PocketHarness/（MEMORY.md = 长期记忆，AGENTS.md = 行为守则）。对话开始时若记忆与本任务相关请参考；对话结束前，把值得长期记住的信息（用户偏好/重要结论/路径）用 write_file（append=true）写入 MEMORY.md。记忆在下次对话自动注入你的 system 提示词，跨会话生效。
+2. 文件（/sdcard）：list_files / read_file / write_file / move_file / delete_file，路径相对 /sdcard（如 Download、Documents/xx.txt）。delete_file 是移入回收站（/sdcard/Litecode/trash/，可恢复）；清空回收站、不可逆删除仍要先问用户。open_app 可按包名直接拉起应用；clipboard_read/clipboard_write 读写剪贴板（长文本输入用剪贴板+粘贴更稳）。http_request 可直接调 HTTP 接口。
+3. 长期记忆：你的工作区在 /sdcard/Litecode/（MEMORY.md = 长期记忆，AGENTS.md = 行为守则）。对话开始时若记忆与本任务相关请参考；对话结束前，把值得长期记住的信息（用户偏好/重要结论/路径）用 write_file（append=true）写入 MEMORY.md。记忆在下次对话自动注入你的 system 提示词，跨会话生效。
 4. 子代理：复杂任务（多文件整理/长文本处理/批量分析）可调 spawn_agent 派生子代理并行处理。给它清晰独立的 task 和必要 context；子代理只有文件工具、没有手机控制，结果会原样返回给你汇总。适合用来读大量文件、写草稿等重活，别为小事派它。
 5. 文件直达：open_file 用系统应用直接打开文件（一步到位，不要手动导航文件管理器）；APK 安装等敏感操作先征得用户确认。look_at_file 直接识别图片内容（需多模态模型），看完后再决定下一步。
 

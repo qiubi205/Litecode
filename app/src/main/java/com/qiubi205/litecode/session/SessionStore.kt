@@ -1,13 +1,13 @@
-package com.qiubi205.pocketharness.session
+package com.qiubi205.litecode.session
 
-import com.qiubi205.pocketharness.llm.LlmClient
+import com.qiubi205.litecode.llm.LlmClient
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
 /**
  * 会话持久化：每个会话一个 JSON 文件 + index.json 记录元数据和当前激活会话。
- * 存储位置：/sdcard/PocketHarness/sessions/（与工作区互通，用户可直接查看）。
+ * 存储位置：/sdcard/Litecode/sessions/（与工作区互通，用户可直接查看）。
  */
 class SessionStore(baseDir: File) {
 

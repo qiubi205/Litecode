@@ -4,15 +4,15 @@ plugins {
 }
 
 android {
-    namespace = "com.qiubi205.pocketharness"
+    namespace = "com.qiubi205.litecode"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.qiubi205.pocketharness"
+        applicationId = "com.qiubi205.litecode"
         minSdk = 29          // Android 10，对齐你的荣耀 Play5
         targetSdk = 34
-        versionCode = 5
-        versionName = "0.5.0"
+        versionCode = 6
+        versionName = "0.5.1"
     }
 
     buildTypes {

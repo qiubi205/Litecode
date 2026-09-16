@@ -11,5 +11,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "PocketHarness"
+rootProject.name = "Litecode"
 include(":app")

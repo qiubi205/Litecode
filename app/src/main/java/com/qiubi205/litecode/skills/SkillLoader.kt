@@ -1,4 +1,4 @@
-package com.qiubi205.pocketharness.skills
+package com.qiubi205.litecode.skills
 
 import android.os.Environment
 import java.io.File
@@ -10,7 +10,7 @@ object SkillLoader {
     private fun skillsRoot(): File {
         val external = Environment.getExternalStorageDirectory()
         val base = if (external != null) external.absolutePath else "/sdcard"
-        return File(base, "PocketHarness/skills")
+        return File(base, "Litecode/skills")
     }
 
     fun listSkills(): List<Skill> {

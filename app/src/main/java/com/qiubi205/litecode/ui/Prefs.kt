@@ -1,4 +1,4 @@
-package com.qiubi205.pocketharness.ui
+package com.qiubi205.litecode.ui
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -6,7 +6,7 @@ import org.json.JSONObject
 
 /** 配置持久化：LLM 端点 + key + 模型名（默认智谱开放平台 glm-5.3-flash） */
 class Prefs(ctx: Context) {
-    private val sp: SharedPreferences = ctx.getSharedPreferences("pocketharness", Context.MODE_PRIVATE)
+    private val sp: SharedPreferences = ctx.getSharedPreferences("litecode", Context.MODE_PRIVATE)
 
     var baseUrl: String
         get() = sp.getString("base_url", "https://open.bigmodel.cn/api/paas/v4/")!!
