@@ -48,7 +48,7 @@ object Markdown {
         }
     }
 
-    /** 列表项：-/* 换成 •，保留缩进，剩余内容走行内渲染（粗体/斜体/代码） */
+    /** 列表项：短横线或星号换成圆点，保留缩进，剩余内容走行内渲染（粗体/斜体/代码） */
     private fun appendListItem(out: SpannableStringBuilder, line: String) {
         val indent = line.length - line.trimStart().length
         if (indent > 0) out.append(" ".repeat(indent))
