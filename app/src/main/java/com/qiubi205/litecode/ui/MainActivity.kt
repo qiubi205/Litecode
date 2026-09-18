@@ -73,7 +73,7 @@ class MainActivity : ComponentActivity() {
                 activeSessionId = activeSessionId,
                 config = config,
                 onSend = ::onSend,
-                onStop = ::onStop,
+                onStop = ::onSendStop,
                 onNewSession = ::onNewSession,
                 onSelectSession = ::onSelectSession,
                 onDeleteSession = ::onDeleteSession,
@@ -213,7 +213,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun onStop() {
+    private fun onSendStop() {
         engine.cancel()
         DeviceTools.cancelled = true
         pushStatus("⏹ 已请求停止")

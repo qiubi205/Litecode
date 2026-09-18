@@ -62,7 +62,7 @@ internal fun MessageBubble(entry: ChatEntry) {
                         tv.text = Markdown.render(entry.text)
                         tv.textSize = 15f
                         tv.setTextIsSelectable(true)
-                        tv.lineSpacingMultiplier = 1.3f
+                        tv.setLineSpacing(0f, 1.3f)
                     }
                 )
             }
