@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.Litecode" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">#6750A4</item>
-        <item name="android:statusBarColor">#6750A4</item>
+        <item name="colorPrimary">#4D6BFE</item>
+        <item name="android:statusBarColor">#F3F4F6</item>
+        <item name="android:windowLightStatusBar">true</item>
     </style>
 </resources>

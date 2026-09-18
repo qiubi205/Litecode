@@ -15,7 +15,8 @@ class SessionStore(baseDir: File) {
         val id: String,
         var name: String,
         val createdAtMs: Long,
-        val messages: MutableList<LlmClient.Message> = mutableListOf()
+        val messages: MutableList<LlmClient.Message> = mutableListOf(),
+        var profileId: String? = null
     )
 
     private val dir: File = File(baseDir, "sessions").apply { mkdirs() }
@@ -119,6 +120,7 @@ class SessionStore(baseDir: File) {
         }
         return JSONObject().put("id", s.id).put("name", s.name)
             .put("created", s.createdAtMs).put("messages", arr)
+            .also { s.profileId?.let { pid -> it.put("profile_id", pid) } }
     }
 
     private fun fromJson(o: JSONObject): Session {
@@ -141,6 +143,7 @@ class SessionStore(baseDir: File) {
                 name = m.optString("name").takeIf { it.isNotEmpty() }
             ))
         }
-        return Session(o.getString("id"), o.optString("name", "会话"), o.optLong("created"), msgs)
+        return Session(o.getString("id"), o.optString("name", "会话"), o.optLong("created"), msgs,
+            o.optString("profile_id").takeIf { it.isNotEmpty() })
     }
 }

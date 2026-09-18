@@ -7,180 +7,122 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
-import android.view.View
-import android.widget.Button
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.qiubi205.litecode.AgentEngine
-import com.qiubi205.litecode.R
 import com.qiubi205.litecode.a11y.HarnessAccessibilityService
-import com.qiubi205.litecode.tools.DeviceTools
+import com.qiubi205.litecode.profile.Profile
+import com.qiubi205.litecode.profile.ProfileStore
 import com.qiubi205.litecode.session.SessionStore
+import com.qiubi205.litecode.tools.DeviceTools
 import com.qiubi205.litecode.workspace.Workspace
+import java.io.File
 
 /**
- * 单 Activity 极简界面：状态条 + 对话流 + 输入行。
+ * v0.6.0 Compose 换皮：Activity 只做状态接线（引擎/会话/档案 ↔ ChatScreen），
+ * UI 全部在 ChatUi.kt（装配）+ ChatUiParts.kt（零件）。
  */
-class MainActivity : AppCompatActivity() {
+class MainActivity : ComponentActivity() {
 
     private lateinit var engine: AgentEngine
     private lateinit var prefs: Prefs
     private lateinit var store: SessionStore
-    private lateinit var status: TextView
-    private lateinit var log: TextView
-    private lateinit var scroll: ScrollView
-    private lateinit var input: EditText
-    private lateinit var settingsPanel: LinearLayout
+    private lateinit var profiles: ProfileStore
+
+    private var entries by mutableStateOf(listOf<ChatEntry>())
+    private var busy by mutableStateOf(false)
+    private var sessions by mutableStateOf(listOf<SessionUi>())
+    private var activeSessionId by mutableStateOf<String?>(null)
+    private var config by mutableStateOf(ConfigUi("", "", "", 25))
+    private var a11yReady by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         prefs = Prefs(this)
         engine = AgentEngine(this)
-        engine.configure(prefs.baseUrl, prefs.apiKey, prefs.model)
         engine.maxToolRounds = prefs.maxToolRounds
-        engine.onEvent = { ev -> runOnUiThread { appendLog(ev) } }
+        engine.onEvent = { ev -> runOnUiThread { onEngineEvent(ev) } }
 
-        // 会话：恢复上次激活的会话（无则建新），历史回填引擎
+        // 多档案：APP 私有目录存 profiles.json；首次用旧 Prefs 值播种默认档案
+        profiles = ProfileStore(File(filesDir, "profiles"))
+        val active = profiles.ensureDefaults(prefs.baseUrl, prefs.apiKey, prefs.model)
+        applyProfileToEngine(active)
+
+        // 会话：恢复上次激活的（无则建新），历史回填引擎
         store = SessionStore(java.io.File(Environment.getExternalStorageDirectory(), Workspace.DIR_NAME))
         val s = try { store.ensureActive() } catch (e: Exception) { null }
         if (s != null) {
             engine.replaceHistory(s.messages)
+            activeSessionId = s.id
+            entries = rebuildEntries(s)
+            pushStatus("💬 已恢复会话「${s.name}」（${s.messages.size} 条消息）")
+        }
+        refreshSessionList()
+        refreshConfigState()
+
+        setContent {
+            ChatScreen(
+                entries = entries,
+                busy = busy,
+                a11yReady = a11yReady,
+                sessions = sessions,
+                activeSessionId = activeSessionId,
+                config = config,
+                onSend = ::onSend,
+                onStop = ::onStop,
+                onNewSession = ::onNewSession,
+                onSelectSession = ::onSelectSession,
+                onDeleteSession = ::onDeleteSession,
+                onSaveConfig = ::onSaveConfig,
+                onOpenA11ySettings = {
+                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                },
+            )
         }
 
-        buildUi()
-        if (s != null) {
-            appendLog("💬 已恢复会话「${s.name}」（${s.messages.size} 条消息）")
-        }
         requestStorage()
-        val created = Workspace.seedIfFirstRun()
-        if (created.isNotEmpty()) {
-            appendLog("📁 已创建工作区 /sdcard/${Workspace.DIR_NAME}/ ：${created.joinToString("、")}")
-        }
+        Workspace.seedIfFirstRun()
     }
 
-    /** 存储权限：Android 11+ 走 MANAGE_EXTERNAL_STORAGE 引导页，10 走运行时授权 */
-    private fun requestStorage() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (!Environment.isExternalStorageManager()) {
-                appendLog("⚠️ 需要存储权限才能建工作区：点击后请在系统页允许「所有文件访问」")
-                startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                    android.net.Uri.parse("package:$packageName")))
-            }
-        } else if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-            != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(
-                Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                Manifest.permission.READ_EXTERNAL_STORAGE), 1)
-        }
+    // ---------- 档案 ----------
+
+    private fun applyProfileToEngine(p: Profile) {
+        engine.configure(p.baseUrl, p.apiKey, p.model)
+        engine.maxToolRounds = prefs.maxToolRounds
     }
 
-    private fun buildUi() {
-        val pad = (16 * resources.displayMetrics.density).toInt()
+    private fun refreshConfigState() {
+        val p = profiles.ensureActive()
+        config = ConfigUi(p.baseUrl, p.apiKey, p.model, prefs.maxToolRounds)
+    }
 
-        status = TextView(this).apply {
-            setPadding(pad, pad / 2, pad, pad / 2)
-            setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-        }
+    private fun onSaveConfig(url: String, key: String, model: String, rounds: Int) {
+        val p = profiles.ensureActive()
+        p.baseUrl = url.trim()
+        p.apiKey = key.trim()
+        p.model = model.trim()
+        profiles.update(p)
+        prefs.maxToolRounds = rounds.coerceIn(3, 100)
+        // 兼容旧 Prefs（作为默认档案镜像）
+        prefs.baseUrl = p.baseUrl
+        prefs.apiKey = p.apiKey
+        prefs.model = p.model
+        applyProfileToEngine(p)
+        refreshConfigState()
+        pushStatus("✅ 配置已保存：${p.baseUrl} / ${p.model} / 循环上限 ${prefs.maxToolRounds}")
+    }
 
-        log = TextView(this).apply {
-            setPadding(pad, pad, pad, pad)
-            setTextIsSelectable(true)
-            text = "Litecode 就绪。配置好 LLM 后下达指令。\n"
-        }
-        scroll = ScrollView(this).apply { addView(log) }
+    // ---------- 会话 ----------
 
-        input = EditText(this).apply {
-            hint = getString(R.string.hint_input)
-            setSingleLine(false)
-            maxLines = 3
-        }
-
-        val sendBtn = Button(this).apply {
-            text = getString(R.string.send)
-            setOnClickListener { onSend() }
-        }
-
-        // 停止按钮：中断当前工具循环（引擎在安全点退出）
-        val stopBtn = Button(this).apply {
-            text = "⏹"
-            setOnClickListener {
-                engine.cancel()
-                DeviceTools.cancelled = true
-                appendLog("⏹ 已请求停止")
-            }
-        }
-
-        val inputRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(pad / 2, 0, pad / 2, pad / 2)
-            addView(input, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            addView(stopBtn)
-            addView(sendBtn)
-        }
-
-        val sessionsBtn = TextView(this).apply {
-            text = "💬"
-            setPadding(pad, pad / 2, pad, pad / 2)
-            setOnClickListener { showSessionDialog() }
-        }
-
-        // 设置面板（首行点"设置"展开）：会话管理按钮放状态行右侧
-        settingsPanel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-            setPadding(pad, 0, pad, pad / 2)
-            val url = EditText(this@MainActivity).apply { hint = "Base URL (如 https://api.xx.com/v1)"; setText(prefs.baseUrl) }
-            val key = EditText(this@MainActivity).apply { hint = "API Key"; setText(prefs.apiKey) }
-            val model = EditText(this@MainActivity).apply { hint = "模型名"; setText(prefs.model) }
-            val rounds = EditText(this@MainActivity).apply {
-                hint = "工具循环上限（默认 25）"
-                setText(prefs.maxToolRounds.toString())
-                inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            }
-            val save = Button(this@MainActivity).apply {
-                text = "保存配置"
-                setOnClickListener {
-                    prefs.baseUrl = url.text.toString().trim()
-                    prefs.apiKey = key.text.toString().trim()
-                    prefs.model = model.text.toString().trim()
-                    prefs.maxToolRounds = rounds.text.toString().toIntOrNull()?.coerceIn(3, 100) ?: 25
-                    engine.maxToolRounds = prefs.maxToolRounds
-                    engine.configure(prefs.baseUrl, prefs.apiKey, prefs.model)
-                    appendLog("✅ 配置已保存：${prefs.baseUrl} / ${prefs.model} / 循环上限 ${prefs.maxToolRounds}")
-                    settingsPanel.visibility = View.GONE
-                    refreshStatus()
-                }
-            }
-            addView(url); addView(key); addView(model); addView(rounds); addView(save)
-        }
-
-        val settingsBtn = TextView(this).apply {
-            text = getString(R.string.settings)
-            setPadding(pad, pad / 2, pad / 4, pad / 2)
-            setOnClickListener { settingsPanel.visibility = if (settingsPanel.visibility == View.GONE) View.VISIBLE else View.GONE }
-        }
-
-        // 顶行：状态 + 设置 + 会话
-        val topRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            addView(status, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            addView(settingsBtn)
-            addView(sessionsBtn)
-        }
-
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(topRow)
-            addView(settingsPanel)
-            addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-            addView(inputRow)
-        }
-        setContentView(root)
-        refreshStatus()
+    private fun refreshSessionList() {
+        sessions = try {
+            store.list().map { SessionUi(it.id, it.name, it.messages.size) }
+        } catch (e: Exception) { emptyList() }
+        activeSessionId = try { store.activeId() } catch (e: Exception) { null }
     }
 
     private fun saveActive() {
@@ -192,115 +134,141 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) { /* 权限未给时静默 */ }
     }
 
-    /** 会话管理：列表/新建/切换/删除 */
-    private fun showSessionDialog() {
-        val sessions = try { store.list() } catch (e: Exception) { emptyList<SessionStore.Session>() }
-        val active = try { store.activeId() } catch (e: Exception) { null }
-        val items = Array(sessions.size + 1) { i ->
-            if (i == 0) "➕ 新建会话"
-            else (if (sessions[i - 1].id == active) "● " else "  ") +
-                sessions[i - 1].name + "（${sessions[i - 1].messages.size}条）"
-        }
-        android.app.AlertDialog.Builder(this)
-            .setTitle("会话")
-            .setItems(items) { _, which ->
-                try {
-                    if (which == 0) {
-                        switchTo(store.create("会话 ${sessions.size + 1}"))
-                    } else {
-                        val target = sessions[which - 1]
-                        if (target.id == active) return@setItems
-                        android.app.AlertDialog.Builder(this)
-                            .setTitle(target.name)
-                            .setItems(arrayOf("切换到此会话", "删除此会话")) { _, w ->
-                                try {
-                                    if (w == 0) switchTo(target)
-                                    else {
-                                        val wasActive = target.id == active
-                                        store.delete(target.id)
-                                        appendLog("🗑 已删除「${target.name}」")
-                                        if (wasActive) {
-                                            val next = try { store.ensureActive() } catch (e: Exception) { null }
-                                            if (next != null) switchTo(next, saveCurrent = false)
-                                        }
-                                    }
-                                } catch (e: Exception) {
-                                    appendLog("⚠️ 会话操作失败：${e.message}（检查存储权限）")
-                                }
-                            }.show()
-                    }
-                } catch (e: Exception) {
-                    appendLog("⚠️ 会话操作失败：${e.message}（检查存储权限）")
-                }
+    private fun rebuildEntries(s: SessionStore.Session): List<ChatEntry> =
+        s.messages.filter { it.role == "user" || it.role == "assistant" }
+            .takeLast(30)
+            .map { m ->
+                if (m.role == "user") ChatEntry("user", m.content ?: "")
+                else ChatEntry("assistant", m.content ?: "(工具调用)")
             }
-            .show()
-    }
 
-    private fun switchTo(s: SessionStore.Session, saveCurrent: Boolean = true) {
-        if (saveCurrent) saveActive() // 切走前保存当前（删除后切换时不保存）
-        store.setActive(s.id)
-        engine.replaceHistory(s.messages)
-        log.text = ""
-        appendLog("💬 会话「${s.name}」（${s.messages.size} 条消息）")
-        // 把旧消息渲染出来（最多 30 条，防止 UI 卡顿）
-        s.messages.filter { it.role != "system" }.takeLast(30).forEach { m ->
-            appendLog(if (m.role == "user") "你：${m.content ?: ""}" else "🤖：${m.content ?: "(工具调用)"}")
+    private fun onNewSession() {
+        try {
+            saveActive()
+            val s = store.create("会话 ${sessions.size + 1}")
+            store.setActive(s.id)
+            engine.replaceHistory(s.messages)
+            entries = listOf(ChatEntry("status", "💬 新会话「${s.name}」"))
+            refreshSessionList()
+        } catch (e: Exception) {
+            pushStatus("⚠️ 新建失败：${e.message}")
         }
     }
 
-    private fun refreshStatus() {
-        val on = HarnessAccessibilityService.isReady()
-        status.text = getString(if (on) R.string.a11y_status_on else R.string.a11y_status_off)
-        status.setTextColor(getColor(if (on) android.R.color.holo_green_dark else android.R.color.holo_red_light))
+    private fun onSelectSession(id: String) {
+        try {
+            val target = store.load(id) ?: return
+            saveActive()
+            store.setActive(id)
+            engine.replaceHistory(target.messages)
+            entries = rebuildEntries(target)
+            refreshSessionList()
+            pushStatus("💬 会话「${target.name}」（${target.messages.size} 条消息）")
+        } catch (e: Exception) {
+            pushStatus("⚠️ 切换失败：${e.message}")
+        }
     }
 
-    private fun onSend() {
-        val text = input.text.toString().trim()
-        if (text.isEmpty()) return
-        if (prefs.apiKey.isBlank() || prefs.baseUrl.isBlank()) {
-            appendLog("⚠️ 请先点右上「设置」填写 LLM 配置。")
-            settingsPanel.visibility = View.VISIBLE
+    private fun onDeleteSession(id: String) {
+        try {
+            val wasActive = id == activeSessionId
+            val name = store.delete(id)
+            if (name != null) {
+                if (wasActive) {
+                    val next = try { store.ensureActive() } catch (e: Exception) { null }
+                    if (next != null) {
+                        store.setActive(next.id)
+                        engine.replaceHistory(next.messages)
+                        entries = rebuildEntries(next)
+                    }
+                }
+                refreshSessionList()
+                pushStatus("🗑 已删除「$name」")
+            }
+        } catch (e: Exception) {
+            pushStatus("⚠️ 删除失败：${e.message}")
+        }
+    }
+
+    // ---------- 发送 / 停止 ----------
+
+    private fun onSend(text: String) {
+        val t = text.trim()
+        if (t.isEmpty()) return
+        val p = profiles.ensureActive()
+        if (p.apiKey.isBlank() || p.baseUrl.isBlank()) {
+            pushStatus("⚠️ 请先在「⚙ 设置」里填写 LLM 配置。")
             return
         }
-        input.setText("")
-        appendLog("你：$text")
-        appendLog("…思考中")
-        engine.send(text) { reply ->
+        entries = entries + ChatEntry("user", t) + ChatEntry("status", "…")
+        busy = true
+        engine.send(t) { reply ->
             runOnUiThread {
-                refreshStatus()
-                if (reply != null) appendLog(reply) // "…思考中" 行保留，回复接在后面
-                saveActive() // 每轮落盘
+                busy = false
+                a11yReady = HarnessAccessibilityService.isReady()
+                if (reply != null) replaceTrailingStatus(reply)
+                else dropTrailingStatus()
+                saveActive()
             }
         }
     }
 
-    private fun appendLog(s: String) {
-        // 机器人回复跑 mini markdown 渲染；其余消息纯文本
-        val rendered: CharSequence = if (s.startsWith("🤖：")) {
-            try {
-                val spanned = com.qiubi205.litecode.ui.Markdown.render(s.removePrefix("🤖："))
-                android.text.SpannableStringBuilder("🤖：").append(spanned)
-            } catch (e: Exception) { s }
-        } else s
-        if (log.text.isEmpty()) log.text = rendered
-        else {
-            log.append("\n")
-            log.append(rendered)
-        }
-        scrollToBottom()
+    private fun onStop() {
+        engine.cancel()
+        DeviceTools.cancelled = true
+        pushStatus("⏹ 已请求停止")
     }
 
-    /** 强制滚到底部：双 post 兜底（等布局测量完成后再滚一次），LLM 回复始终置底可见 */
-    private fun scrollToBottom() {
-        scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
-        scroll.postDelayed({ scroll.fullScroll(View.FOCUS_DOWN) }, 150)
+    // ---------- 引擎事件 → 消息流 ----------
+
+    private fun onEngineEvent(ev: String) {
+        // 🔧 工具调用事件替换尾部"…"，不追加新行（避免刷屏）
+        if (ev.startsWith("🔧") || ev.startsWith("🛰️") || ev.startsWith("👁")) {
+            replaceTrailingStatus(ev)
+        } else {
+            pushStatus(ev)
+        }
+    }
+
+    private fun pushStatus(text: String) {
+        entries = entries + ChatEntry("status", text)
+    }
+
+    private fun replaceTrailingStatus(text: String) {
+        val last = entries.lastOrNull()
+        entries = if (last?.role == "status") {
+            entries.dropLast(1) + ChatEntry("assistant", text)
+        } else {
+            entries + ChatEntry("assistant", text)
+        }
+    }
+
+    private fun dropTrailingStatus() {
+        if (entries.lastOrNull()?.role == "status") entries = entries.dropLast(1)
+    }
+
+    // ---------- 权限 ----------
+
+    private fun requestStorage() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                pushStatus("⚠️ 需要存储权限：请在接下来系统页允许「所有文件访问」")
+                startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    android.net.Uri.parse("package:$packageName")))
+            }
+        } else if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(
+                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                Manifest.permission.READ_EXTERNAL_STORAGE), 1)
+        }
     }
 
     override fun onResume() {
         super.onResume()
-        refreshStatus()
+        a11yReady = HarnessAccessibilityService.isReady()
         // 用户可能刚授予存储权限回来，补播种
         val created = Workspace.seedIfFirstRun()
-        if (created.isNotEmpty()) appendLog("📁 工作区已就绪：${created.joinToString("、")} 已创建")
+        if (created.isNotEmpty()) pushStatus("📁 工作区已就绪：${created.joinToString("、")} 已创建")
     }
 }

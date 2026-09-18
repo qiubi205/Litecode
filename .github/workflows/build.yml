@@ -17,8 +17,12 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      # SDK 用 runner 自带（已预装 platform-34/build-tools），
+      # 不再手动装包：android-actions/setup-android@v3 会跑 sdkmanager 装 `tools`，
+      # 该包已从 SDK 仓库下架，必挂（2026-09-18 CI 实锤）。
+      # AGP 会按需自动拉缺失组件并自动接受 license。
+      - name: Verify Android SDK
+        run: sdkmanager --list_installed | head -20
 
       - name: Setup Gradle 8.7
         uses: gradle/actions/setup-gradle@v3
