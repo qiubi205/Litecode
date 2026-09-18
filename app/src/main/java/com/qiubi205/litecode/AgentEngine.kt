@@ -18,7 +18,7 @@ import kotlin.concurrent.thread
  */
 class AgentEngine(private val context: Context) {
 
-    private val client = LlmClient("", "", "")
+    private val clientField = LlmClient("", "", "")
     private val history = mutableListOf<LlmClient.Message>()
 
     /** 停止协作标志：cancel() 置 true，工具循环在安全点检查并退出 */
@@ -48,8 +48,12 @@ class AgentEngine(private val context: Context) {
     var maxToolRounds = 25
     /** 每轮回调（UI 线程刷新用） */
     var onEvent: ((String) -> Unit)? = null
+    /** 伪流式：正文增量回调（UI 线程外，MainActivity 自己 post） */
+    var onPartial: ((String) -> Unit)? = null
+    /** 暴露底层客户端（生成参数调整用） */
+    val client: LlmClient get() = clientField
 
-    fun configure(url: String, key: String, model: String) = client.updateConfig(url, key, model)
+    fun configure(url: String, key: String, model: String) = clientField.updateConfig(url, key, model)
 
     val messageCount: Int get() = history.size
 
@@ -89,6 +93,31 @@ class AgentEngine(private val context: Context) {
         }
     }
 
+    /** 流式调用 + 伪流式播放：真实接收走 SSE，UI 按 playSpeedCps 匀速看到内容 */
+    private fun callModelStreaming(tools: JSONArray?): LlmClient.Response {
+        val full: LlmClient.Response = clientField.chatStream(history, tools) { _, _ -> }
+        val reasonText = full.reasoning ?: ""
+        val contentText = full.content ?: ""
+        var shown = 0                       // 已播放的字符数（思维链不逐字，正文逐字）
+        var playing = true
+        // 思维链先整段展示（灰色折叠气泡由 UI 渲染）
+        if (reasonText.isNotBlank()) onEvent?.invoke("💭 $reasonText")
+        val player = thread(name = "typewriter") {
+            try {
+                while (playing && !cancelled && shown < contentText.length) {
+                    val step = (clientField.playSpeedCps / 5).coerceAtLeast(2)
+                    shown = (shown + step).coerceAtMost(contentText.length)
+                    onPartial?.invoke(contentText.substring(0, shown))
+                    Thread.sleep(200)
+                }
+            } catch (e: InterruptedException) { }
+        }
+        while (playing && !cancelled && shown < contentText.length) Thread.sleep(100)
+        playing = false
+        player.interrupt()
+        return full
+    }
+
     private fun runLoop(): String? {
         val tools = JSONArray().apply {
             for (i in 0 until DeviceTools.definitions.length()) put(DeviceTools.definitions.get(i))
@@ -99,7 +128,7 @@ class AgentEngine(private val context: Context) {
         var rounds = 0
         while (rounds < maxToolRounds) {
             rounds++
-            val resp = client.chat(history, tools)
+            val resp = callModelStreaming(tools)
             if (cancelled) return "⏹ 已停止当前任务。"
 
             // 有工具调用：执行并回填
@@ -112,7 +141,7 @@ class AgentEngine(private val context: Context) {
                         "spawn_agent" -> {
                             onEvent?.invoke("🛰️ 子代理启动：${args.optString("task", "").take(30)}…")
                             val r = SubAgent.run(
-                                client,
+                                clientField,
                                 task = args.optString("task", "").ifBlank { "（未提供任务）" },
                                 context = args.optString("context", "")
                             ) { ev -> onEvent?.invoke(ev) }
@@ -128,7 +157,7 @@ class AgentEngine(private val context: Context) {
                             } else {
                                 onEvent?.invoke("👁 视觉识别中…")
                                 val answer = try {
-                                    client.chatVision(
+                                    clientField.chatVision(
                                         args.optString("question", "请详细描述这张图片的内容"),
                                         img.first, img.second)
                                 } catch (e: Exception) { null }
@@ -162,7 +191,7 @@ class AgentEngine(private val context: Context) {
         history.add(LlmClient.Message("user",
             "（系统）已达工具轮次上限（$maxToolRounds）。不要再调用任何工具，直接根据以上已获取的信息总结：任务进展、已完成步骤、结果、剩余建议。"))
         return try {
-            val r = client.chat(history, null)
+            val r = callModelStreaming(null)
             withTokens(r.content ?: "（模型未能总结；任务未完成，请拆小步重试）", r.rawUsage)
         } catch (e: Exception) {
             "⚠️ 已达工具轮次上限（$maxToolRounds）且总结失败：${e.message}"
@@ -180,7 +209,7 @@ class AgentEngine(private val context: Context) {
         msgs.addAll(old)
         msgs.add(LlmClient.Message("user",
             "（系统）请把以上对话史浓缩成要点摘要：保留关键事实、决定、未完成事项、重要路径与数字。直接输出摘要，不要客套。"))
-        val summary = try { client.chat(msgs, null).content } catch (e: Exception) { null }
+        val summary = try { clientField.chat(msgs, null).content } catch (e: Exception) { null }
         if (summary.isNullOrBlank()) return  // 压缩失败照常执行
         val sys = history[0]
         history.clear()

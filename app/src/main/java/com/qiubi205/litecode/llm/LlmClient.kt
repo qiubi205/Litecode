@@ -24,10 +24,25 @@ class LlmClient(
         val content: String? = null,
         val toolCalls: List<ToolCall>? = null,
         val toolCallId: String? = null,
-        val name: String? = null
+        val name: String? = null,
+        val reasoning: String? = null
     )
 
-    data class Response(val content: String?, val toolCalls: List<ToolCall>, val finishReason: String?, val rawUsage: JSONObject?)
+    data class Response(
+        val content: String?,
+        val toolCalls: List<ToolCall>,
+        val finishReason: String?,
+        val rawUsage: JSONObject?,
+        val reasoning: String? = null
+    )
+
+    /** 生成参数（设置页可调）；温度/多样性/思考强度 */
+    var temperature: Double = 0.7
+    var topP: Double = 0.9
+    var thinkingBudget: String = ""   // ""=不发送（用服务端默认）; "low"/"medium"/"high"
+    var streamEnabled: Boolean = true
+    /** 伪流式播放速度：每秒吐多少字符（中文 ≈ token 数） */
+    var playSpeedCps: Int = 100
 
     fun updateConfig(url: String, key: String, modelId: String) {
         baseUrl = url.trimEnd('/')
@@ -62,6 +77,8 @@ class LlmClient(
         val body = JSONObject().apply {
             put("model", model)
             put("temperature", temperature)
+            put("top_p", topP)
+            if (thinkingBudget.isNotBlank()) put("thinking", JSONObject().put("type", "enabled").put("budget_tokens", thinkingBudget))
             put("messages", arr)
             if (tools != null && tools.length() > 0) put("tools", tools)
         }
@@ -80,6 +97,100 @@ class LlmClient(
             .put("messages", JSONArray().put(
                 JSONObject().put("role", "user").put("content", content)))
         return post(body).content
+    }
+
+    /**
+     * SSE 流式对话：网络层逐 delta 接收，onDelta 回调增量（content 或 reasoning）。
+     * 返回攒好的全量 Response。流式不可用或中途失败时回退一次性 post。
+     */
+    fun chatStream(messages: List<Message>, tools: JSONArray?, onDelta: (reasoning: Boolean, text: String) -> Unit): Response {
+        if (!streamEnabled) return chat(messages, tools)
+        val arr = JSONArray()
+        for (m in messages) {
+            val o = JSONObject().put("role", m.role)
+            o.put("content", m.content ?: JSONObject.NULL)
+            if (m.toolCalls != null) {
+                val tcs = JSONArray()
+                for (tc in m.toolCalls) tcs.put(JSONObject().put("id", tc.id).put("type", "function")
+                    .put("function", JSONObject().put("name", tc.name).put("arguments", tc.argumentsJson)))
+                o.put("tool_calls", tcs)
+            } else if (m.toolCallId != null) o.put("tool_call_id", m.toolCallId)
+            arr.put(o)
+        }
+        val body = JSONObject().apply {
+            put("model", model)
+            put("temperature", temperature)
+            put("top_p", topP)
+            if (thinkingBudget.isNotBlank()) put("thinking", JSONObject().put("type", "enabled").put("budget_tokens", thinkingBudget))
+            put("messages", arr)
+            if (tools != null && tools.length() > 0) put("tools", tools)
+            put("stream", true)
+            put("stream_options", JSONObject().put("include_usage", true))
+        }
+        val conn = URL("$baseUrl/chat/completions").openConnection() as HttpURLConnection
+        try {
+            conn.requestMethod = "POST"
+            conn.connectTimeout = 15_000
+            conn.readTimeout = 180_000
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "application/json")
+            if (apiKey.isNotBlank()) conn.setRequestProperty("Authorization", "Bearer $apiKey")
+            conn.setRequestProperty("Accept", "text/event-stream")
+            conn.outputStream.use { it.write(body.toString().toByteArray(StandardCharsets.UTF_8)) }
+            val code = conn.responseCode
+            if (code !in 200..299) {
+                // 非 200 一律回退非流式（错误处理/重试逻辑都在那边）
+                return chat(messages, tools)
+            }
+            val contentSb = StringBuilder()
+            val reasonSb = StringBuilder()
+            val tcs = mutableListOf<ToolCall>()
+            var finish: String? = null
+            var usage: JSONObject? = null
+            val reader = BufferedReader(InputStreamReader(conn.inputStream, StandardCharsets.UTF_8))
+            var line: String? = reader.readLine()
+            while (line != null) {
+                if (line.startsWith("data:")) {
+                    val payload = line.removePrefix("data:").trim()
+                    if (payload == "[DONE]") break
+                    try {
+                        val chunk = JSONObject(payload)
+                        chunk.optJSONObject("usage")?.let { usage = it }
+                        val choice = chunk.optJSONArray("choices")?.optJSONObject(0)
+                        if (choice != null) {
+                            choice.optString("finish_reason")?.takeIf { it.isNotEmpty() && it != "null" }?.let { finish = it }
+                            val delta = choice.optJSONObject("delta")
+                            if (delta != null) {
+                                val r = delta.optString("reasoning_content").takeIf { it.isNotEmpty() }
+                                    ?: delta.optString("reasoning").takeIf { it.isNotEmpty() }
+                                if (r != null) { reasonSb.append(r); onDelta(true, r) }
+                                val c = delta.optString("content")
+                                if (c.isNotEmpty()) { contentSb.append(c); onDelta(false, c) }
+                                delta.optJSONArray("tool_calls")?.let { tca ->
+                                    for (i in 0 until tca.length()) {
+                                        val tc = tca.optJSONObject(i) ?: continue
+                                        val fn = tc.optJSONObject("function") ?: continue
+                                        val idx = tc.optInt("index", i)
+                                        while (tcs.size <= idx) tcs.add(ToolCall("", "", ""))
+                                        val old = tcs[idx]
+                                        tcs[idx] = ToolCall(
+                                            tc.optString("id", old.id),
+                                            fn.optString("name", old.name),
+                                            old.argumentsJson + fn.optString("arguments", ""))
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e: Exception) { /* 跳过坏 chunk */ }
+                }
+                line = reader.readLine()
+            }
+            return Response(contentSb.toString().takeIf { it.isNotBlank() }, tcs, finish, usage, reasonSb.toString().takeIf { it.isNotBlank() })
+        } catch (e: Exception) {
+            return chat(messages, tools)   // 流式中断/异常 → 回退一次性
+        } finally {
+            conn.disconnect()
+        }
     }
 
     private fun post(body: JSONObject, attempt: Int = 0): Response {
@@ -122,7 +233,9 @@ class LlmClient(
                 content = msg?.optString("content")?.takeIf { it.isNotEmpty() && it != "null" },
                 toolCalls = tcs,
                 finishReason = choice?.optString("finish_reason"),
-                rawUsage = json.optJSONObject("usage")
+                rawUsage = json.optJSONObject("usage"),
+                reasoning = msg?.optString("reasoning_content")?.takeIf { it.isNotEmpty() && it != "null" }
+                    ?: msg?.optString("reasoning")?.takeIf { it.isNotEmpty() && it != "null" }
             )
         } catch (e: LlmException) {
             throw e

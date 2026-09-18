@@ -11,9 +11,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -67,6 +70,17 @@ internal fun MessageBubble(entry: ChatEntry) {
                 )
             }
         }
+        "reasoning" -> Box(Modifier.fillMaxWidth()) {
+            Column(
+                Modifier
+                    .fillMaxWidth(0.9f)
+                    .background(Color(0xFFF7F8FA), RoundedCornerShape(12.dp))
+                    .padding(10.dp)
+            ) {
+                Text("💭 思考过程", fontSize = 11.sp, color = Color(0xFF8A8F98), fontWeight = FontWeight.Bold)
+                Text(entry.text, fontSize = 12.sp, color = Color(0xFF6B7280), lineHeight = 16.sp)
+            }
+        }
         "status" -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Text(entry.text, fontSize = 12.sp, color = Color(0xFF8A8F98))
         }
@@ -75,13 +89,25 @@ internal fun MessageBubble(entry: ChatEntry) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun SettingsSheet(config: ConfigUi, onSave: (String, String, String, Int) -> Unit, onDismiss: () -> Unit) {
+internal fun SettingsSheet(
+    config: ConfigUi,
+    onSave: (String, String, String, Int, Double, Double, String, Int) -> Unit,
+    onDismiss: () -> Unit
+) {
     var url by remember(config) { mutableStateOf(config.baseUrl) }
     var key by remember(config) { mutableStateOf(config.apiKey) }
     var model by remember(config) { mutableStateOf(config.model) }
     var rounds by remember(config) { mutableStateOf(config.rounds.toString()) }
+    var temp by remember(config) { mutableStateOf(config.temperature.toString()) }
+    var topP by remember(config) { mutableStateOf(config.topP.toString()) }
+    var thinking by remember(config) { mutableStateOf(config.thinking) }
+    var speed by remember(config) { mutableStateOf(config.speed.toString()) }
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(16.dp)) {
+        Column(
+            Modifier
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
             Text("设置", fontSize = 18.sp, fontWeight = FontWeight.Bold)
             OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("Base URL") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = key, onValueChange = { key = it }, label = { Text("API Key") }, modifier = Modifier.fillMaxWidth())
@@ -91,8 +117,38 @@ internal fun SettingsSheet(config: ConfigUi, onSave: (String, String, String, In
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
             )
+            Row(Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = temp, onValueChange = { temp = it }, label = { Text("温度") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.size(8.dp))
+                OutlinedTextField(
+                    value = topP, onValueChange = { topP = it }, label = { Text("核采样 topP") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Row(Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = thinking, onValueChange = { thinking = it },
+                    label = { Text("思考强度(空=默认,low,high)") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.size(8.dp))
+                OutlinedTextField(
+                    value = speed, onValueChange = { speed = it }, label = { Text("打字速度字/秒") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f)
+                )
+            }
             Button(
-                onClick = { onSave(url, key, model, rounds.toIntOrNull() ?: 25) },
+                onClick = {
+                    onSave(url, key, model, rounds.toIntOrNull() ?: 25,
+                        temp.toDoubleOrNull() ?: 0.7, topP.toDoubleOrNull() ?: 0.9,
+                        thinking, speed.toIntOrNull() ?: 100)
+                },
                 colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
                 modifier = Modifier.fillMaxWidth()
             ) { Text("保存") }

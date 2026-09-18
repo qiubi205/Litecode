@@ -43,8 +43,26 @@ object Markdown {
             line.startsWith("###") -> appendHeading(out, line.removePrefix("###"), 1.1f)
             line.startsWith("##") -> appendHeading(out, line.removePrefix("##"), 1.25f)
             line.startsWith("#") -> appendHeading(out, line.removePrefix("#"), 1.4f)
-            isListItem(line) -> out.append(line)
+            isListItem(line) -> appendListItem(out, line)
             else -> appendInline(out, line)
+        }
+    }
+
+    /** 列表项：-/* 换成 •，保留缩进，剩余内容走行内渲染（粗体/斜体/代码） */
+    private fun appendListItem(out: SpannableStringBuilder, line: String) {
+        val indent = line.length - line.trimStart().length
+        if (indent > 0) out.append(" ".repeat(indent))
+        val t = line.trimStart()
+        if (t.startsWith("- ") || t.startsWith("* ")) {
+            out.append("• ")
+            appendInline(out, t.substring(2).trimStart())
+        } else {
+            // 数字列表：保留 "N." 前缀，后面的内容仍要行内渲染
+            val dot = t.indexOf(". ")
+            if (dot > 0) {
+                out.append(t.substring(0, dot + 2))
+                appendInline(out, t.substring(dot + 2))
+            } else appendInline(out, t)
         }
     }
 

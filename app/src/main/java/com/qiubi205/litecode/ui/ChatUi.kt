@@ -36,10 +36,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 
-/** role: "user" | "assistant" | "status" */
+/** role: "user" | "assistant" | "status" | "reasoning" */
 data class ChatEntry(val role: String, val text: String)
 data class SessionUi(val id: String, val name: String, val count: Int)
-data class ConfigUi(val baseUrl: String, val apiKey: String, val model: String, val rounds: Int)
+data class ConfigUi(
+    val baseUrl: String, val apiKey: String, val model: String, val rounds: Int,
+    val temperature: Double = 0.7, val topP: Double = 0.9,
+    val thinking: String = "", val speed: Int = 100
+)
 
 internal val BrandBlue = Color(0xFF4D6BFE)
 internal val BgLight = Color(0xFFF3F4F6)
@@ -58,7 +62,7 @@ fun ChatScreen(
     onNewSession: () -> Unit,
     onSelectSession: (String) -> Unit,
     onDeleteSession: (String) -> Unit,
-    onSaveConfig: (String, String, String, Int) -> Unit,
+    onSaveConfig: (String, String, String, Int, Double, Double, String, Int) -> Unit,
     onOpenA11ySettings: () -> Unit,
 ) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -126,7 +130,10 @@ fun ChatScreen(
     if (showSettings) {
         SettingsSheet(
             config = config,
-            onSave = onSaveConfig,
+            onSave = { url, key, model, rounds, temp, topP, thinking, speed ->
+                showSettings = false
+                onSaveConfig(url, key, model, rounds, temp, topP, thinking, speed)
+            },
             onDismiss = { showSettings = false },
         )
     }

@@ -31,6 +31,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var prefs: Prefs
     private lateinit var store: SessionStore
     private lateinit var profiles: ProfileStore
+    /** 引擎内部的 LLM 客户端（生成参数在这里） */
+    private val client get() = engine.client
 
     private var entries by mutableStateOf(listOf<ChatEntry>())
     private var busy by mutableStateOf(false)
@@ -46,6 +48,7 @@ class MainActivity : ComponentActivity() {
         engine = AgentEngine(this)
         engine.maxToolRounds = prefs.maxToolRounds
         engine.onEvent = { ev -> runOnUiThread { onEngineEvent(ev) } }
+        engine.onPartial = { partial -> runOnUiThread { updatePartial(partial) } }
 
         // 多档案：APP 私有目录存 profiles.json；首次用旧 Prefs 值播种默认档案
         profiles = ProfileStore(File(filesDir, "profiles"))
@@ -77,7 +80,7 @@ class MainActivity : ComponentActivity() {
                 onNewSession = ::onNewSession,
                 onSelectSession = ::onSelectSession,
                 onDeleteSession = ::onDeleteSession,
-                onSaveConfig = ::onSaveConfig,
+                onSaveConfig = ::onSaveConfigFull,
                 onOpenA11ySettings = {
                     startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                 },
@@ -93,34 +96,50 @@ class MainActivity : ComponentActivity() {
     private fun applyProfileToEngine(p: Profile) {
         engine.configure(p.baseUrl, p.apiKey, p.model)
         engine.maxToolRounds = prefs.maxToolRounds
+        client.temperature = prefs.temperature
+        client.topP = prefs.topP
+        client.thinkingBudget = prefs.thinkingBudget
+        client.playSpeedCps = prefs.playSpeedCps
+        client.streamEnabled = prefs.streamEnabled
     }
 
     private fun refreshConfigState() {
         val p = profiles.ensureActive()
-        config = ConfigUi(p.baseUrl, p.apiKey, p.model, prefs.maxToolRounds)
+        config = ConfigUi(p.baseUrl, p.apiKey, p.model, prefs.maxToolRounds,
+            prefs.temperature, prefs.topP, prefs.thinkingBudget, prefs.playSpeedCps)
     }
 
-    private fun onSaveConfig(url: String, key: String, model: String, rounds: Int) {
+    private fun onSaveConfigFull(url: String, key: String, model: String, rounds: Int,
+                             temp: Double, topP: Double, thinking: String, speed: Int) {
+        onSaveConfig(url, key, model, rounds, temp, topP, thinking, speed)
+    }
+
+    private fun onSaveConfig(url: String, key: String, model: String, rounds: Int,
+                             temp: Double, topP: Double, thinking: String, speed: Int) {
         val p = profiles.ensureActive()
         p.baseUrl = url.trim()
         p.apiKey = key.trim()
         p.model = model.trim()
         profiles.update(p)
         prefs.maxToolRounds = rounds.coerceIn(3, 100)
+        prefs.temperature = temp.coerceIn(0.0, 2.0)
+        prefs.topP = topP.coerceIn(0.0, 1.0)
+        prefs.thinkingBudget = thinking.trim().lowercase()
+        prefs.playSpeedCps = speed.coerceIn(20, 1000)
         // 兼容旧 Prefs（作为默认档案镜像）
         prefs.baseUrl = p.baseUrl
         prefs.apiKey = p.apiKey
         prefs.model = p.model
         applyProfileToEngine(p)
         refreshConfigState()
-        pushStatus("✅ 配置已保存：${p.baseUrl} / ${p.model} / 循环上限 ${prefs.maxToolRounds}")
+        pushStatus("✅ 配置已保存：${p.model} / T=${prefs.temperature} / topP=${prefs.topP} / 思考=${prefs.thinkingBudget.ifBlank { "默认" }} / ${prefs.playSpeedCps}字/秒")
     }
 
     // ---------- 会话 ----------
 
     private fun refreshSessionList() {
         sessions = try {
-            store.list().map { SessionUi(it.id, it.name, it.messages.size) }
+            store.list().map { SessionUi(it.id, it.name, it.messages.count { m -> m.role == "user" || m.role == "assistant" }) }
         } catch (e: Exception) { emptyList() }
         activeSessionId = try { store.activeId() } catch (e: Exception) { null }
     }
@@ -129,7 +148,8 @@ class MainActivity : ComponentActivity() {
         try {
             val s = store.ensureActive()
             s.messages.clear()
-            s.messages.addAll(engine.snapshotHistory())
+            // system 位不落盘：每次发送时引擎都会重新注入最新记忆，落盘只会占空间 + 被误计数
+            s.messages.addAll(engine.snapshotHistory().filter { it.role != "system" })
             store.save(s)
         } catch (e: Exception) { /* 权限未给时静默 */ }
     }
@@ -206,6 +226,7 @@ class MainActivity : ComponentActivity() {
             runOnUiThread {
                 busy = false
                 a11yReady = HarnessAccessibilityService.isReady()
+                // 打字机播完后，全量回复（含 tokens 尾注）覆盖 partial
                 if (reply != null) replaceTrailingStatus(reply)
                 else dropTrailingStatus()
                 saveActive()
@@ -222,11 +243,28 @@ class MainActivity : ComponentActivity() {
     // ---------- 引擎事件 → 消息流 ----------
 
     private fun onEngineEvent(ev: String) {
+        // 💭 思维链：插一条 reasoning 消息（灰色斜体，不参与对话流计数——UI 层身份与 status 相同）
+        if (ev.startsWith("💭")) {
+            entries = entries + ChatEntry("reasoning", ev.removePrefix("💭 "))
+            return
+        }
         // 🔧 工具调用事件替换尾部"…"，不追加新行（避免刷屏）
         if (ev.startsWith("🔧") || ev.startsWith("🛰️") || ev.startsWith("👁")) {
             replaceTrailingStatus(ev)
         } else {
             pushStatus(ev)
+        }
+    }
+
+    /** 伪流式：打字机把正在生成的正文写到尾部 assistant 条目 */
+    private fun updatePartial(partial: String) {
+        val last = entries.lastOrNull()
+        entries = if (last?.role == "assistant") {
+            entries.dropLast(1) + ChatEntry("assistant", partial)
+        } else {
+            // 尾部是 status（…）或空：换成正在打字的 assistant
+            val withoutTrailingStatus = if (last?.role == "status") entries.dropLast(1) else entries
+            withoutTrailingStatus + ChatEntry("assistant", partial)
         }
     }
 
